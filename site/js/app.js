@@ -93,10 +93,23 @@
       var soldOut = !!stock && stock[s] === 0;
       input.disabled = soldOut || blocked;
       label.classList.toggle('is-out', soldOut);
-      var note = soldOut ? 'Esgotado' : stock && stock[s] <= LOW_STOCK ? 'Últimas ' + stock[s] : '';
+      var note = !stock ? '' : soldOut ? 'Esgotado'
+        : stock[s] <= LOW_STOCK ? 'Últimas ' + stock[s]
+        : 'Restam ' + stock[s];
+      label.classList.toggle('is-low', !!stock && !soldOut && stock[s] <= LOW_STOCK);
       label.querySelector('.size__note').textContent = note;
       input.setAttribute('aria-label', 'Tamanho ' + s + (note ? ', ' + note.toLowerCase() : ''));
       if (input.disabled && selected === s) { selected = null; input.checked = false; }
+    });
+
+    // Contador geral de camisas restantes (topo e formulário)
+    var left = stock ? SIZES.reduce(function (t, s) { return t + (stock[s] || 0); }, 0) : null;
+    var leftText = left === null ? '' : left === 0 ? 'Camisas esgotadas'
+      : left === 1 ? 'Resta 1 camisa' : 'Restam ' + left.toLocaleString('pt-BR') + ' camisas';
+    ['hero-stock', 'stock-total'].forEach(function (id) {
+      var n = $(id);
+      n.textContent = leftText;
+      n.hidden = left === null;
     });
 
     var lim = $('limit-label');

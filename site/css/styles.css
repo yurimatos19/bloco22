@@ -99,6 +99,8 @@ section[id] { scroll-margin-top: 40px; }
 .hero__cents { font-size: .46em; margin-top: .06em; letter-spacing: 0; color: var(--y400); }
 .hero__price { margin-bottom: 22px; }
 .hero .btn { width: 100%; }
+.hero__stock { margin: 10px 0 0; text-align: center; font-weight: 800; font-size: 14px; color: var(--y400); }
+.hero__stock::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--y400); margin-right: 8px; vertical-align: 1px; }
 .hero__note { margin: 14px 0 0; text-align: center; font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, .8); }
 
 /* ---------- Evento ---------- */
@@ -172,6 +174,7 @@ section[id] { scroll-margin-top: 40px; }
 .product__price { margin: 2px 0 0; font-family: var(--display); font-weight: 800; font-size: 26px; color: var(--g700); line-height: 1.1; }
 .product__limit { margin: 2px 0 0; font-size: 13px; font-weight: 700; color: var(--muted); }
 .product__limit.full { color: var(--blue-d); }
+.product__stock { margin: 2px 0 0; font-size: 13px; font-weight: 800; color: var(--g600); }
 
 /* seletor de tamanho (escolha única) */
 .picker { border: 0; padding: 0; margin: 0 0 14px; min-width: 0; }
@@ -185,7 +188,8 @@ section[id] { scroll-margin-top: 40px; }
   color: var(--g800); transition: transform .12s;
 }
 .size__face b { font-family: var(--display); font-weight: 800; font-size: 20px; line-height: 1; }
-.size__note { font-size: 11px; font-weight: 700; line-height: 1.1; color: var(--blue); }
+.size__note { font-size: 11px; font-weight: 700; line-height: 1.1; color: var(--muted); }
+.size.is-low .size__note { color: var(--blue); }
 .size__note:empty { display: none; }
 .size:active .size__face { transform: scale(.94); }
 .size input:checked + .size__face { border-color: var(--g700); background: var(--g800); color: var(--y400); }
@@ -353,7 +357,9 @@ section[id] { scroll-margin-top: 40px; }
   .hero__bottom { max-width: 440px; }
   .hero__logo { width: 220px; }
   .hero__title { font-size: 28px; }
-  .hero__note { text-align: left; }
+  .hero__stock { margin: 10px 0 0; text-align: center; font-weight: 800; font-size: 14px; color: var(--y400); }
+.hero__stock::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--y400); margin-right: 8px; vertical-align: 1px; }
+.hero__note, .hero__stock { text-align: left; }
   .event-wrap { padding-top: 40px; }
   .event { grid-template-columns: auto 1fr auto; padding: 22px 28px; }
   .event__date { width: 104px; height: 112px; }
