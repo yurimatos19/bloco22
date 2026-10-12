@@ -17,21 +17,21 @@ apps-script/       → backend no Google Apps Script
 
 ## 1. Backend (Google Sheets + Apps Script)
 
-Planilha: **Bloco 22 — Controle de Reservas** (abas PAINEL, RESERVAS, ITENS, CONFIG, GUIA).
+1. Abra o projeto do Apps Script, apague o conteúdo e cole `apps-script/Code.gs`. Salve.
+2. Rode **`criarPlanilhaNova`** (autorize). Ela cria a planilha "Bloco do 22 — Reservas de camisas",
+   liga o site a ela e instala a automação. O link aparece no registro de execução.
+3. **Implantar → Gerenciar implantações → ✏️ → Nova versão → Implantar** (a URL do site não muda).
 
-1. Abra a planilha → **Extensões → Apps Script**.
-2. Apague o conteúdo e cole `apps-script/Code.gs`. Salve.
-3. Selecione **`verificarPlanilha`** → **▶ Executar** → autorize. Deve aparecer "Tudo certo ✅" no registro.
-4. (Opcional) Rode **`testarReserva`** e confira a linha nova em RESERVAS e ITENS. Apague depois.
-5. **Implantar → Nova implantação → App da Web** — Executar como: **Eu** · Acesso: **Qualquer pessoa**.
-6. Copie a URL que termina em `/exec`.
+Funções úteis no editor: `verPlanilha` (link + saldo), `testarReserva`, `desligarPlanilha`.
 
-> Ao alterar o `Code.gs`: **Implantar → Gerenciar implantações → Editar → Nova versão** (mantém a mesma URL).
-
-O que o script grava:
-- **RESERVAS** (a partir da linha 6): Código, Data/hora, Nome, WhatsApp, Resumo ("2x M, 1x GG"), Qtd., Entregue? = "Não". Total (G) e Status (H) continuam sendo fórmulas.
-- **ITENS**: uma linha por tamanho do pedido (Código, Tamanho, Quantidade) — alimenta o PAINEL por tamanho.
-- Preço e máximo por reserva são lidos de **CONFIG!B5** e **CONFIG!B6**.
+### Abas da planilha
+| Aba | Para quê |
+|---|---|
+| **Painel** | Reservas, camisas reservadas/entregues, valores e estoque por tamanho (só fórmulas) |
+| **Balcão** | Atendente digita código ou WhatsApp, confere e marca **Entregue** (registra atendente e hora) |
+| **Reservas** | Uma linha por pedido: P, M, G, GG, total e **Status** (Reservado / Entregue / Cancelado) |
+| **Configurações** | Preço, máximo por reserva, **Reservas abertas** (caixa) e **estoque por tamanho** |
+| **Como usar** | Guia da equipe |
 
 ## 2. Site
 
@@ -48,17 +48,14 @@ python3 -m http.server 5522 -d site
 
 ## 3. Operação diária (equipe do Comitê)
 
-1. Busque o **código** ou o **telefone** na aba RESERVAS (Ctrl+F).
-2. Confira nome, tamanhos (coluna "Camisas (resumo)") e o Total.
-3. Receba o pagamento e entregue **todas** as camisas do pedido.
-4. Mude **Entregue?** para **Sim** — a "Data/hora retirada" é preenchida sozinha. Preencha o Atendente.
-5. Acompanhe totais e pendências por tamanho na aba **PAINEL**.
+Tudo pela aba **Balcão**: digite o código (B22-…) ou o WhatsApp, confira, receba e marque **Entregue**.
+Quem desistir: na aba Reservas, Status = **Cancelado** (as camisas voltam ao estoque).
 
 ## Estoque
 
-1.000 camisas: **P 150 · M 250 · G 400 · GG 200** (em `CONFIG.STOCK`, no `Code.gs`).
-O saldo é calculado somando a aba ITENS. O site mostra "Últimas N" (≤ 20) e "Esgotado", e o servidor recusa
-reservas acima do saldo. Para devolver ao estoque as camisas de quem desistiu, apague as linhas da reserva em RESERVAS e ITENS.
+Inicial: **P 150 · M 250 · G 400 · GG 200** (1.000 camisas), editável na aba Configurações.
+Saldo = estoque − camisas de reservas não canceladas. O site mostra "Últimas N" (≤ 20) e "Esgotado",
+e o servidor recusa reservas acima do saldo. Desmarcar "Reservas abertas" trava o site.
 
 ## Regras implementadas
 
