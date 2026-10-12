@@ -456,7 +456,26 @@ function onBalcaoEdit_(e) {
 function ativar() {
   const ss = ss_();
   ss.setSpreadsheetTimeZone(APP.TZ);
-  ss.setSpreadsheetLocale('pt_BR');
+  // As fórmulas abaixo usam vírgula como separador (padrão em inglês). Em português o separador é
+  // ";" e a vírgula vira decimal, o que quebra tudo (#ERROR!). Por isso escrevemos tudo com a
+  // planilha em inglês e, no fim, voltamos para português: o Google converte as fórmulas sozinho.
+  ss.setSpreadsheetLocale('en_US');
+  SpreadsheetApp.flush();
+  try {
+    ativarConteudo_(ss);
+  } finally {
+    SpreadsheetApp.flush();
+    ss.setSpreadsheetLocale('pt_BR');
+    SpreadsheetApp.flush();
+  }
+
+  const s = settings_();
+  Logger.log('Planilha ativada ✅  %s', ss.getUrl());
+  Logger.log('Preço R$ %s, máximo %s por pessoa, reservas abertas: %s', s.price, s.max, s.open ? 'sim' : 'não');
+  Logger.log('Saldo: %s', JSON.stringify(remaining_(s.stock)));
+}
+
+function ativarConteudo_(ss) {
 
   // Configurações: intervalos nomeados, caixa "Reservas abertas" e total do estoque
   const cfg = sheet_(APP.SHEETS.CONFIG);
@@ -539,13 +558,6 @@ function ativar() {
 
   installTrigger_(ss.getId());
   installHourlyTrigger_();
-  SpreadsheetApp.flush();
-
-  const s = settings_();
-  Logger.log('Planilha ativada ✅  %s', ss.getUrl());
-  Logger.log('Preço R$ %s, máximo %s por reserva, reservas abertas: %s', s.price, s.max, s.open ? 'sim' : 'não');
-  Logger.log('Saldo: %s', JSON.stringify(remaining_(s.stock)));
-  Logger.log('Agora publique uma nova versão em Implantar → Gerenciar implantações.');
 }
 
 function painelFormulas_(sh) {
