@@ -224,6 +224,7 @@
       .then(function (res) {
         if (res && res.stock) { stock = res.stock; render(); }
         if (!res || !res.ok) throw new Error((res && res.error) || 'Não foi possível concluir sua reserva.');
+        res.phone = payload.whatsapp; // fica só neste celular, para o "Mandar no meu WhatsApp"
         saveLocal(res);
         resetForm();
         showSuccess(res, true);
@@ -350,6 +351,8 @@
     var dl = $('r-deadline');
     dl.textContent = r.deadline ? 'Retire até ' + r.deadline : '';
     dl.hidden = !r.deadline;
+    $('btn-calendar').hidden = !r.deadlineAt;
+    updateSelfWhatsApp(r);
     $('r-total').textContent = brl(r.total);
 
     lastFocus = document.activeElement;
@@ -523,6 +526,43 @@
       setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
       toast('Comprovante salvo nos downloads');
     }).catch(function () { /* cancelado */ });
+  });
+
+  // Abre a conversa da pessoa com ela mesma, já com o comprovante em texto
+  function updateSelfWhatsApp(r) {
+    var a = $('btn-wa-me');
+    a.hidden = !r.phone;
+    if (r.phone) a.href = 'https://wa.me/55' + r.phone + '?text=' + encodeURIComponent(shareText(r));
+  }
+
+  function icsText(t) { return t.replace(/[\\,;]/g, function (m) { return '\\' + m; }); }
+
+  // Lembrete no dia do prazo, das 9h às 18h (horário de Recife)
+  $('btn-calendar').addEventListener('click', function () {
+    var r = lastReservation;
+    if (!r) return;
+    var day = (r.deadlineAt || '').slice(0, 10).replace(/-/g, '');
+    if (!day) { toast('Prazo indisponível para esta reserva'); return; }
+    var title = 'Retirar camisa do Bloco do 22 (' + r.code + ')';
+    var details = 'Código ' + r.code + '. Levar R$ ' + brl(r.total).replace('R$', '').trim() +
+      '. Pagamento e retirada no Comitê da Direita Pernambucana. Prazo: até as 18h.';
+    var place = 'Comitê da Direita Pernambucana, Av. Herculano Bandeira, 766, Pina, Recife - PE';
+    if (/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent)) {
+      var ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Bloco do 22//Reserva//PT', 'BEGIN:VEVENT',
+        'UID:' + r.code + '@bloco22', 'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z',
+        'DTSTART:' + day + 'T120000Z', 'DTEND:' + day + 'T210000Z',
+        'SUMMARY:' + icsText(title), 'DESCRIPTION:' + icsText(details), 'LOCATION:' + icsText(place),
+        'BEGIN:VALARM', 'TRIGGER:-P1D', 'ACTION:DISPLAY', 'DESCRIPTION:' + title, 'END:VALARM',
+        'BEGIN:VALARM', 'TRIGGER:PT0M', 'ACTION:DISPLAY', 'DESCRIPTION:' + title, 'END:VALARM',
+        'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+      window.location.href = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
+    } else {
+      window.open('https://calendar.google.com/calendar/render?action=TEMPLATE' +
+        '&text=' + encodeURIComponent(title) +
+        '&dates=' + day + 'T090000/' + day + 'T180000&ctz=America/Recife' +
+        '&details=' + encodeURIComponent(details) +
+        '&location=' + encodeURIComponent(place), '_blank', 'noopener');
+    }
   });
 
   $('btn-share').addEventListener('click', function () {
