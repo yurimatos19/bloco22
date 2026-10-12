@@ -2,7 +2,6 @@
   'use strict';
 
   var PRICE = 22.00;
-  var MAX = 1; // camisas por pessoa (o servidor manda o valor da aba Configurações)
   var SIZES = ['P', 'M', 'G', 'GG'];
   var LOW_STOCK = 20; // abaixo disso mostra "Últimas N"
   var ADDRESS = 'Avenida Herculano Bandeira, 766, Pina, Recife - PE';
@@ -11,7 +10,6 @@
   var DEMO = !API_URL;
   var STORAGE_KEY = 'bloco22:ultima-reserva';
 
-  var cart = []; // uma entrada por camisa, ex.: ['M', 'M', 'GG']
   var stock = null; // saldo por tamanho vindo da planilha, ex.: { P: 150, M: 250, ... }
   var closed = false; // reservas encerradas pelo servidor (RESERVATIONS_OPEN = false)
   var selected = null;
@@ -19,7 +17,6 @@
   var $ = function (id) { return document.getElementById(id); };
   var form = $('reserve-form');
   var sizesEl = $('sizes');
-  var cartEl = $('cart');
   var nameEl = $('name');
   var phoneEl = $('whatsapp');
   var consentEl = $('consent');
@@ -32,8 +29,8 @@
   var lastReservation = null;
 
   var brl = function (v) { return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); };
-  var total = function () { return cart.length; };
-  var countOf = function (s) { return cart.filter(function (x) { return x === s; }).length; };
+  // Cada pessoa reserva 1 camisa: o tamanho escolhido é a reserva.
+  var total = function () { return selected ? 1 : 0; };
   var plural = function (n) { return n + (n === 1 ? ' camisa' : ' camisas'); };
   var buzz = function () { if (navigator.vibrate) navigator.vibrate(12); };
 
@@ -56,8 +53,7 @@
   if (DEMO) $('demo-banner').hidden = false;
   document.querySelectorAll('.js-directions').forEach(function (a) { a.href = MAPS_URL; });
 
-  /* ---------- Escolha de tamanho + carrinho ---------- */
-  var addBtn = $('add-btn');
+  /* ---------- Escolha do tamanho (1 camisa por pessoa) ---------- */
   var picker = $('picker');
 
   SIZES.forEach(function (s) {
@@ -72,57 +68,21 @@
   sizesEl.addEventListener('change', function (e) {
     selected = e.target.value;
     buzz();
-    render();
-  });
-
-  addBtn.addEventListener('click', function () {
-    if (!selected || total() >= MAX) return;
-    cart.push(selected);
-    toast('Camisa ' + selected + ' adicionada');
-    selected = null;
-    sizesEl.querySelectorAll('input').forEach(function (i) { i.checked = false; });
-    buzz();
     showFormError('');
     render();
   });
-
-  cartEl.addEventListener('click', function (e) {
-    var b = e.target.closest('.cart__del');
-    if (!b) return;
-    cart.splice(Number(b.dataset.i), 1);
-    buzz();
-    render();
-  });
-
-  function trashIcon() {
-    var NS = 'http://www.w3.org/2000/svg';
-    var svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    var path = document.createElementNS(NS, 'path');
-    path.setAttribute('d', 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3');
-    svg.appendChild(path);
-    return svg;
-  }
-
-  // Quantas ainda dá para pôr no carrinho neste tamanho (sem saldo carregado, não limita)
-  function available(s) {
-    return stock ? Math.max(0, stock[s] - countOf(s)) : Infinity;
-  }
 
   function loadStock() {
     if (DEMO) return;
     fetch(API_URL).then(function (r) { return r.json(); }).then(function (d) {
       if (!d) return;
       closed = d.open === false;
-      if (d.max > 0) MAX = d.max;
       if (d.stock) stock = d.stock;
       render();
     }).catch(function () { /* sem saldo: o servidor confere na hora de reservar */ });
   }
 
   function render() {
-    var t = total();
-    var full = t >= MAX;
     var soldAll = !!stock && SIZES.every(function (s) { return stock[s] === 0; });
     var blocked = closed || soldAll;
 
@@ -130,66 +90,38 @@
     sizesEl.querySelectorAll('.size').forEach(function (label) {
       var input = label.querySelector('input');
       var s = input.value;
-      var soldOut = stock && stock[s] === 0;
-      var left = available(s);
-      input.disabled = soldOut || left === 0;
-      label.classList.toggle('is-out', input.disabled);
-      var note = soldOut ? 'Esgotado'
-        : left === 0 ? 'Sem mais'
-        : stock && stock[s] <= LOW_STOCK ? 'Últimas ' + stock[s]
-        : '';
+      var soldOut = !!stock && stock[s] === 0;
+      input.disabled = soldOut || blocked;
+      label.classList.toggle('is-out', soldOut);
+      var note = soldOut ? 'Esgotado' : stock && stock[s] <= LOW_STOCK ? 'Últimas ' + stock[s] : '';
       label.querySelector('.size__note').textContent = note;
       input.setAttribute('aria-label', 'Tamanho ' + s + (note ? ', ' + note.toLowerCase() : ''));
       if (input.disabled && selected === s) { selected = null; input.checked = false; }
     });
 
-    picker.disabled = full || blocked;
-    addBtn.disabled = full || blocked || !selected;
-    $('add-label').textContent = closed ? 'Reservas encerradas'
-      : soldAll ? 'Camisas esgotadas'
-      : full ? (MAX === 1 ? 'Camisa escolhida' : 'Limite de ' + MAX + ' camisas')
-      : selected ? 'Adicionar tamanho ' + selected
-      : 'Escolha um tamanho';
     var lim = $('limit-label');
     lim.textContent = closed ? 'As reservas pelo site foram encerradas.'
       : soldAll ? 'Todas as camisas já foram reservadas.'
-      : full ? (MAX === 1 ? 'É 1 camisa por pessoa. Para trocar o tamanho, remova a do carrinho.' : 'Você chegou ao limite de ' + MAX + ' camisas')
-      : t ? 'Dá para adicionar mais ' + (MAX - t)
-      : MAX === 1 ? '1 camisa por pessoa' : 'Até ' + MAX + ' por pessoa';
-    lim.classList.toggle('full', full || blocked);
+      : '1 camisa por pessoa';
+    lim.classList.toggle('full', blocked);
+
+    var choice = $('choice');
+    choice.textContent = closed ? 'As reservas pelo site foram encerradas.'
+      : soldAll ? 'Todas as camisas já foram reservadas.'
+      : selected ? 'Sua camisa: tamanho ' + selected + '. Para trocar, toque em outro tamanho.'
+      : 'Toque no tamanho da sua camisa.';
+    choice.classList.toggle('is-set', !!selected);
+
     submitEl.disabled = blocked;
     dockBtn.disabled = blocked;
 
-    // linhas do carrinho (uma por camisa); só a recém-adicionada anima
-    var grew = t > render.prev;
-    render.prev = t;
-    cartEl.replaceChildren();
-    cart.forEach(function (s, i) {
-      var li = el('li', { class: 'cart__item' });
-      var thumb = el('div', { class: 'cart__thumb' });
-      thumb.appendChild(el('img', { src: 'img/camisa-frente.webp', alt: '', width: '56', height: '56' }));
-      var info = el('div', { class: 'cart__info' });
-      info.append(el('b', null, 'Camisa oficial'), el('span', { class: 'cart__sz' }, 'Tam. ' + s));
-      var del = el('button', { type: 'button', class: 'cart__del', 'data-i': String(i), 'aria-label': 'Remover camisa tamanho ' + s });
-      del.appendChild(trashIcon());
-      li.append(thumb, info, el('span', { class: 'cart__price' }, brl(PRICE)), del);
-      if (!(grew && i === t - 1)) li.style.animation = 'none';
-      cartEl.appendChild(li);
-    });
-    $('cart-empty').hidden = t > 0;
-    $('cart-empty').textContent = closed ? 'As reservas pelo site foram encerradas.'
-      : soldAll ? 'Todas as camisas já foram reservadas.'
-      : 'Nenhuma camisa ainda. Escolha um tamanho acima e toque em Adicionar.';
-    $('cart-count').textContent = t + '/' + MAX;
-
     // totais
-    $('sum-qty').textContent = plural(t) + ' × R$ 22,00';
-    $('sum-total').textContent = brl(t * PRICE);
-    $('dock-qty').textContent = t ? plural(t) + ' no carrinho' : 'Camisa oficial';
-    $('dock-total').textContent = brl(t ? t * PRICE : PRICE);
-    dockBtn.textContent = closed ? 'Encerrado' : soldAll ? 'Esgotado' : t ? 'Finalizar' : 'Reservar';
+    $('sum-qty').textContent = selected ? 'Camisa tamanho ' + selected : 'Escolha o tamanho';
+    $('sum-total').textContent = brl(PRICE);
+    $('dock-qty').textContent = selected ? 'Camisa tamanho ' + selected : 'Camisa oficial';
+    $('dock-total').textContent = brl(PRICE);
+    dockBtn.textContent = closed ? 'Encerrado' : soldAll ? 'Esgotado' : selected ? 'Finalizar' : 'Reservar';
   }
-  render.prev = 0;
 
   /* ---------- Campos ---------- */
   phoneEl.addEventListener('input', function () {
@@ -244,7 +176,7 @@
   function check(mark) {
     var first = null;
     if (total() < 1) {
-      first = first || { node: picker, msg: 'Adicione pelo menos 1 camisa' };
+      first = first || { node: picker, msg: 'Escolha o tamanho da camisa' };
     }
     if (!validName(nameEl.value)) {
       if (mark) setFieldError(nameEl, 'Digite seu nome e sobrenome.');
@@ -278,7 +210,7 @@
     if (problem) { guide(problem); return; }
 
     var items = {};
-    SIZES.forEach(function (s) { if (countOf(s)) items[s] = countOf(s); });
+    items[selected] = 1;
     var payload = {
       name: nameEl.value.replace(/\s+/g, ' ').trim(),
       whatsapp: phoneEl.value.replace(/\D/g, ''),
@@ -339,7 +271,6 @@
   }
 
   function resetForm() {
-    cart = [];
     selected = null;
     form.reset();
     consentBox.classList.remove('is-on');
@@ -606,7 +537,7 @@
     var slot = $('reopen-slot');
     slot.replaceChildren();
     var b = el('button', { type: 'button', class: 'reopen' });
-    b.append(el('span', null, 'Você já fez uma reserva neste celular'), el('b', null, 'Ver ' + r.code));
+    b.append(el('span', null, 'Você já reservou sua camisa neste celular.'), el('b', null, 'Ver reserva ' + r.code));
     b.addEventListener('click', function () { showSuccess(r, false); });
     slot.appendChild(b);
   }

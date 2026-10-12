@@ -183,7 +183,7 @@ section[id] { scroll-margin-top: 40px; }
 .size input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .size__face {
   display: grid; place-items: center; align-content: center; gap: 1px; height: 60px; border-radius: 14px; border: 2px solid var(--line); background: #fff;
-  color: var(--g800); transition: border-color .15s, background .15s, color .15s, transform .12s;
+  color: var(--g800); transition: transform .12s;
 }
 .size__face b { font-family: var(--display); font-weight: 800; font-size: 20px; line-height: 1; }
 .size__note { font-size: 11px; font-weight: 700; line-height: 1.1; color: var(--blue); }
@@ -198,28 +198,10 @@ section[id] { scroll-margin-top: 40px; }
 .size.is-out .size__note { color: var(--muted); }
 .picker:disabled .size { cursor: not-allowed; }
 
-.btn--green { background: var(--g600); color: #fff; box-shadow: 0 4px 0 var(--g800); }
-.btn--green:active { box-shadow: 0 1px 0 var(--g800); transform: translateY(3px); }
-.btn--green:disabled { background: #C9D4CC; color: #fff; box-shadow: none; opacity: 1; }
 
-/* carrinho */
-.block__icon { width: 26px; height: 26px; fill: none; stroke: var(--g700); stroke-width: 2.2; stroke-linejoin: round; }
-.cart__count { display: inline-block; margin-left: 4px; padding: 2px 9px; border-radius: 99px; background: var(--g100); color: var(--g700); font-family: var(--body); font-size: 13px; vertical-align: 3px; }
-.cart { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.cart__item { display: flex; align-items: center; gap: 12px; padding: 8px 6px 8px 8px; border-radius: 16px; background: var(--cream); animation: slideIn .25s var(--ease); }
-@keyframes slideIn { from { opacity: 0; transform: translateY(-6px); } }
-.cart__thumb { position: relative; width: 56px; height: 56px; border-radius: 12px; background: #fff; flex: none; }
-.cart__thumb img { width: 100%; height: 100%; object-fit: contain; padding: 3px; }
-.cart__info { flex: 1; min-width: 0; line-height: 1.25; }
-.cart__info b { display: block; font-size: 14px; }
-.cart__info span { font-size: 13px; color: var(--muted); font-weight: 700; }
-.cart__info .cart__sz { display: inline-block; margin-top: 3px; padding: 1px 8px; border-radius: 6px; background: var(--g800); color: var(--y400); font-family: var(--display); font-weight: 800; font-size: 13px; }
-.cart__price { font-family: var(--display); font-weight: 800; font-size: 16px; color: var(--g800); white-space: nowrap; }
-.cart__del { width: 44px; height: 44px; border: 0; border-radius: 12px; background: none; cursor: pointer; display: grid; place-items: center; color: var(--muted); flex: none; }
-.cart__del svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.cart__del:active { background: var(--blue-50); color: var(--blue-d); }
-.cart__empty { margin: 0; padding: 18px; text-align: center; font-size: 14px; color: var(--muted); font-weight: 600; border: 2px dashed var(--line); border-radius: 16px; }
-.cart__sum { display: flex; justify-content: space-between; margin: 12px 4px 0; font-weight: 800; }
+/* escolha */
+.choice { margin: 14px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--cream); color: var(--muted); font-weight: 700; font-size: 14px; text-align: center; }
+.choice.is-set { background: var(--g100); color: var(--g800); }
 
 /* fields */
 .field + .field { margin-top: 14px; }
@@ -261,7 +243,7 @@ section[id] { scroll-margin-top: 40px; }
 .is-loading .spinner { display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.reopen { margin-top: 16px; display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 16px; background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .22); color: #fff; width: 100%; text-align: left; cursor: pointer; }
+.reopen { margin-top: 14px; display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 16px; background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .22); color: #fff; width: 100%; text-align: left; cursor: pointer; }
 .reopen span { flex: 1; font-size: 14px; font-weight: 600; }
 .reopen b { font-family: var(--display); color: var(--y400); font-size: 16px; }
 
