@@ -582,7 +582,9 @@ function ativarConteudo_(ss) {
 function painelFormulas_(sh) {
   const R = 'Reservas!';
   const S = R + 'K2:K';
-  const ST = 'SUM(INDEX(CFG_ESTOQUE,0,2))';
+  // Estoque lido direto das células da aba Configurações (B11:B14), sem depender de nome
+  const CFG = "'" + APP.SHEETS.CONFIG + "'!";
+  const ST = 'SUM(' + CFG + 'B11:B14)';
   // Cartões: valor na linha de baixo do rótulo
   const cards = {
     A5: '=COUNTIFS(' + R + 'A2:A,"<>",' + S + ',"<>Cancelado",' + S + ',"<>Expirado")',
@@ -605,7 +607,7 @@ function painelFormulas_(sh) {
     const L = columnLetter_(COL[sz]);
     sh.getRange(r, 1, 1, 8).setFormulas([[
       '="' + sz + '"',
-      '=INDEX(CFG_ESTOQUE,' + (i + 1) + ',2)',
+      '=' + CFG + 'B' + (11 + i),
       '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"<>Cancelado",' + S + ',"<>Expirado")',
       '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"Entregue")',
       '=C' + r + '-D' + r,
@@ -626,9 +628,11 @@ function painelFormulas_(sh) {
   sh.getRange(14, 8, APP.SIZES.length + 1, 1).setNumberFormat('0%');
 }
 
+// Atualiza o intervalo nomeado sem apagar: apagar transforma em #REF! as fórmulas que o usam.
 function named_(ss, name, range) {
-  try { ss.removeNamedRange(name); } catch (e) { /* ainda não existia */ }
-  ss.setNamedRange(name, range);
+  const existing = ss.getNamedRanges().find(n => n.getName() === name);
+  if (existing) existing.setRange(range);
+  else ss.setNamedRange(name, range);
 }
 
 function checkbox_(range, value) {
