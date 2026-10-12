@@ -11,8 +11,10 @@
  * O site envia a reserva → o script valida, confere o estoque e grava em Reservas.
  * Cancelar uma reserva (Status = Cancelado) devolve as camisas ao estoque.
  * Limite por pessoa: cada WhatsApp pode ter no total CFG_MAX camisas em reservas ativas.
- * Validade: a reserva vale 2 dias (domingo não conta), até as 18h. Vencida → Status "Expirado"
- * (automático, de hora em hora), as camisas voltam ao estoque e a pessoa pode reservar de novo.
+ * Retirada: todos os dias, das 9h às 18h, a partir de PICKUP_START (15/10).
+ * Validade: a reserva vale 2 dias, até as 18h, contados da reserva (ou de 15/10, se reservou antes).
+ * Vencida → Status "Expirado" (automático, de hora em hora), as camisas voltam ao estoque e a
+ * pessoa pode reservar de novo.
  *
  * INSTALAÇÃO (uma vez): cole este código, rode `ativar` e depois publique uma nova versão
  * em Implantar → Gerenciar implantações (a URL do site não muda).
@@ -24,7 +26,8 @@ const APP = {
   SIZES: ['P', 'M', 'G', 'GG'],
   SHEETS: { PAINEL: 'Painel', BALCAO: 'Balcão', RESERVAS: 'Reservas', CONFIG: 'Configurações', GUIA: 'Como usar' },
   STATUS: { RESERVADO: 'Reservado', ENTREGUE: 'Entregue', CANCELADO: 'Cancelado', EXPIRADO: 'Expirado' },
-  HOLD_DAYS: 2,                 // validade da reserva, em dias (domingo não conta)
+  HOLD_DAYS: 2,                 // validade da reserva, em dias
+  PICKUP_START: '2026-10-15',   // primeiro dia de retirada no Comitê
   PICKUP_HOUR: 18,              // a reserva vence às 18h do último dia
   LAST_PICKUP_DAY: '2026-10-22', // nenhum prazo passa do dia do evento
   TZ: 'America/Recife',
@@ -35,7 +38,7 @@ const APP = {
     stock: { P: 150, M: 250, G: 400, GG: 200 },
     local: 'Comitê da Direita Pernambucana',
     endereco: 'Av. Herculano Bandeira, 766 — Pina, Recife/PE',
-    horario: 'Segunda a sábado, das 9h às 18h',
+    horario: 'Todos os dias, das 9h às 18h, a partir de 15/10',
     evento: 'Quinta-feira, 22/10/2026, às 19h, na Pracinha de Boa Viagem',
   },
   CODE_PREFIX: 'B22-',
@@ -170,33 +173,40 @@ function saveReservation_(v, price) {
     qty: v.qty,
     total: total,
     createdAt: now.toISOString(),
-    deadline: deadline.label,   // ex.: "qua, 14/10, às 18h"
+    deadline: deadline.label,   // ex.: "sáb, 17/10, às 18h"
     deadlineAt: deadline.iso,
+    pickupFrom: deadline.from,  // ex.: "qui, 15/10" (vazio se a retirada já começou)
   };
 }
 
-// Prazo de retirada: dia da reserva + HOLD_DAYS (pulando domingo), às 18h, no máximo no dia do evento.
+// Prazo de retirada: (dia da reserva ou início da retirada, o que vier depois) + HOLD_DAYS, às 18h,
+// no máximo no dia do evento. Se a retirada ainda não começou, informa a data de início.
 function deadline_(now) {
-  const [y, m, d] = Utilities.formatDate(now, APP.TZ, 'yyyy-MM-dd').split('-').map(Number);
-  const day = new Date(Date.UTC(y, m - 1, d));
-  let added = 0;
-  while (added < APP.HOLD_DAYS) {
-    day.setUTCDate(day.getUTCDate() + 1);
-    if (day.getUTCDay() !== 0) added++;
-  }
-  const [ly, lm, ld] = APP.LAST_PICKUP_DAY.split('-').map(Number);
-  const last = new Date(Date.UTC(ly, lm - 1, ld));
+  const utc = s => { const [a, b, c] = s.split('-').map(Number); return new Date(Date.UTC(a, b - 1, c)); };
+  const today = utc(Utilities.formatDate(now, APP.TZ, 'yyyy-MM-dd'));
+  const start = utc(APP.PICKUP_START);
+  const from = start > today ? start : today;
+  const day = new Date(from.getTime());
+  day.setUTCDate(day.getUTCDate() + APP.HOLD_DAYS);
+  const last = utc(APP.LAST_PICKUP_DAY);
   if (day > last) day.setTime(last.getTime());
   const pad = n => String(n).padStart(2, '0');
   const ymd = day.getUTCFullYear() + '-' + pad(day.getUTCMonth() + 1) + '-' + pad(day.getUTCDate());
   const hh = pad(APP.PICKUP_HOUR);
   const weekdays = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  const short = dt => weekdays[dt.getUTCDay()] + ', ' + pad(dt.getUTCDate()) + '/' + pad(dt.getUTCMonth() + 1);
   return {
+    from: start > today ? short(start) : '',                  // ex.: "qui, 15/10" (retirada ainda não começou)
     sheet: ymd + ' ' + hh + ':00:00',                         // gravado na planilha (horário de Recife)
     iso: ymd + 'T' + hh + ':00:00-03:00',                     // para o site
-    label: weekdays[day.getUTCDay()] + ', ' + pad(day.getUTCDate()) + '/' + pad(day.getUTCMonth() + 1) + ', às ' + APP.PICKUP_HOUR + 'h',
+    label: short(day) + ', às ' + APP.PICKUP_HOUR + 'h',
     date: new Date(ymd + 'T' + hh + ':00:00-03:00'),
   };
+}
+
+// Depois das 18h do último dia de retirada não faz sentido reservar: o site fecha sozinho.
+function pickupOver_(now) {
+  return now.getTime() > new Date(APP.LAST_PICKUP_DAY + 'T' + String(APP.PICKUP_HOUR).padStart(2, '0') + ':00:00-03:00').getTime();
 }
 
 // Reserva ainda vale? (Reservado e dentro do prazo)
@@ -300,7 +310,7 @@ function settings_() {
   return {
     price: num('CFG_PRECO', APP.DEFAULTS.price),
     max: Math.floor(num('CFG_MAX', APP.DEFAULTS.max)),
-    open: open ? isOn_(open.getValue()) : true,
+    open: (open ? isOn_(open.getValue()) : true) && !pickupOver_(new Date()),
     stock: stock,
   };
 }
@@ -543,12 +553,17 @@ function ativarConteudo_(ss) {
   expirarReservas();
 
   // Configurações e guia: validade da reserva
-  cfg.getRange('A22:B22').setValues([['Validade da reserva', APP.HOLD_DAYS + ' dias (domingo não conta), até as ' + APP.PICKUP_HOUR + 'h']]);
+  cfg.getRange('A22:B22').setValues([['Validade da reserva', APP.HOLD_DAYS + ' dias, até as ' + APP.PICKUP_HOUR + 'h (contando a partir de 15/10 para quem reservou antes)']]);
+  const cfgLabels = cfg.getRange(1, 1, cfg.getLastRow(), 1).getValues().map(r => String(r[0]).trim());
+  const hRow = cfgLabels.indexOf('Horário de retirada');
+  if (hRow !== -1) cfg.getRange(hRow + 1, 2).setValue(APP.DEFAULTS.horario);
   cfg.getRange('A21:B21').copyFormatToRange(cfg, 1, 2, 22, 22);
   const guia = sheet_(APP.SHEETS.GUIA);
   const guiaTxt = guia.getRange(1, 2, guia.getLastRow(), 1).getValues().map(r => String(r[0]));
-  const aviso = 'Reservas não retiradas no prazo (2 dias, domingo não conta, até as 18h) viram Expirado sozinhas e as camisas voltam ao estoque. O prazo aparece na coluna Retirar até.';
-  if (guiaTxt.indexOf(aviso) === -1) {
+  const aviso = 'A retirada começa na quinta, 15/10, todos os dias das 9h às 18h. Reservas não retiradas no prazo (2 dias, até as 18h) viram Expirado sozinhas e as camisas voltam ao estoque. O prazo aparece na coluna Retirar até.';
+  const old = guiaTxt.findIndex(t => t.indexOf('Reservas não retiradas no prazo') !== -1);
+  if (old !== -1) guia.getRange(old + 1, 2).setValue(aviso);
+  else if (guiaTxt.indexOf(aviso) === -1) {
     const r = guia.getLastRow() + 2;
     guia.getRange(r, 1, 1, 2).setValues([['!', aviso]]);
     guia.getRange(r - 3, 1, 1, 2).copyFormatToRange(guia, 1, 2, r, r);

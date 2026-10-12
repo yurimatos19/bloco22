@@ -52,13 +52,13 @@ python3 -m http.server 5522 -d site
 ## 3. Operação diária (equipe do Comitê)
 
 Tudo pela aba **Balcão**: digite o código (B22-…) ou o WhatsApp, confira, receba e marque **Entregue**.
-A reserva vale **2 dias (domingo não conta), até as 18h**, nunca depois de 22/10. Vencida, vira **Expirado**
+A reserva vale **2 dias, até as 18h** (contando de 15/10 para quem reservou antes), nunca depois de 22/10; depois de 22/10 às 18h o site fecha sozinho. Vencida, vira **Expirado**
 sozinha (gatilho de hora em hora), a camisa volta ao estoque e a pessoa pode reservar de novo.
 Quem desistir: na aba Reservas, Status = **Cancelado** (as camisas voltam ao estoque).
 
 ## Estoque
 
-Inicial: **P 150 · M 250 · G 400 · GG 200** (1.000 camisas), editável na aba Configurações.
+Retirada a partir de 15/10, todos os dias, 9h–18h. Inicial: **P 150 · M 250 · G 400 · GG 200** (1.000 camisas), editável na aba Configurações.
 Saldo = estoque − camisas de reservas não canceladas. O site mostra "Últimas N" (≤ 20) e "Esgotado",
 e o servidor recusa reservas acima do saldo. Desmarcar "Reservas abertas" trava o site.
 

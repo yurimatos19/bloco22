@@ -378,7 +378,7 @@
     });
     $('r-qty').textContent = plural(r.qty);
     var dl = $('r-deadline');
-    dl.textContent = r.deadline ? 'Retire até ' + r.deadline : '';
+    dl.textContent = r.deadline ? pickupText(r) : '';
     dl.hidden = !r.deadline;
     $('btn-calendar').hidden = !r.deadlineAt;
     updateSelfWhatsApp(r);
@@ -438,14 +438,19 @@
   var logo = new Image();
   logo.src = 'img/logo.png';
 
+  // "Retire até sáb, 17/10, às 18h" ou, se a retirada ainda não começou, "Retire de qui, 15/10, até sáb, 17/10, às 18h"
+  function pickupText(r) {
+    return 'Retire ' + (r.pickupFrom ? 'de ' + r.pickupFrom + ', ' : '') + 'até ' + r.deadline;
+  }
+
   function shareText(r) {
     return '*Reserva Bloco do 22* — Código *' + r.code + '*\n' +
       r.items.map(function (i) { return i.qty + 'x ' + i.size; }).join(', ') +
       ' — Total ' + brl(r.total) + ' (pagar na retirada)\n\n' +
       'Pagamento e retirada SOMENTE no Comitê da Direita Pernambucana\n' +
       'Av. Herculano Bandeira, 766 — Pina, Recife/PE\n' +
-      (r.deadline ? 'Retire até ' + r.deadline + '.\n' : '') +
-      'Segunda a sábado, das 9h às 18h. Não há entregas.\n' + MAPS_URL;
+      (r.deadline ? pickupText(r) + '.\n' : '') +
+      'Todos os dias, das 9h às 18h. Não há entregas.\n' + MAPS_URL;
   }
 
   function buildReceipt(r) {
@@ -500,11 +505,12 @@
     x.fillText('Comitê da Direita Pernambucana', W / 2, y + 140);
     x.font = '600 34px ' + B;
     x.fillText('Av. Herculano Bandeira, 766 — Pina, Recife/PE', W / 2, y + 190);
-    x.fillText('Segunda a sábado, das 9h às 18h', W / 2, y + 236);
+    x.fillText('Todos os dias, das 9h às 18h', W / 2, y + 236);
     if (r.deadline) {
-      x.fillStyle = '#032814'; roundRect(x, W / 2 - 330, y + 262, 660, 60, 30); x.fill();
+      x.fillStyle = '#032814'; roundRect(x, W / 2 - 440, y + 262, 880, 60, 30); x.fill();
       x.fillStyle = '#FFD21F'; x.font = '800 32px ' + B;
-      x.fillText('Retire até ' + r.deadline, W / 2, y + 304);
+      x.font = '800 ' + (r.pickupFrom ? 28 : 32) + 'px ' + B;
+      x.fillText(pickupText(r), W / 2, y + 302);
       y += 70;
     }
     x.fillStyle = '#032814'; x.font = '800 30px ' + B;
