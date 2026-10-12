@@ -8,6 +8,7 @@
  * As colunas com fórmula (RESERVAS G/H e ITENS D) são preservadas.
  *
  * Na retirada, a equipe muda "Entregue?" para "Sim" e a Data/hora retirada é preenchida sozinha.
+ * O estoque por tamanho (CONFIG.STOCK) é conferido a cada reserva; o site mostra o que esgotou.
  *
  * INSTALAÇÃO: depois de colar, rode a função `configurar` UMA VEZ pelo editor (autoriza o acesso
  * e instala o gatilho da data de retirada). Depois publique uma nova versão da implantação.
@@ -20,7 +21,10 @@ const CONFIG = {
   SHEET_ITENS: 'ITENS',
   SHEET_CONFIG: 'CONFIG',
   FIRST_DATA_ROW: 6,                // linha 5 = cabeçalho
-  SIZES: ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG'],
+  SIZES: ['P', 'M', 'G', 'GG'],
+  // Estoque total por tamanho (1000 camisas). O saldo = estoque − quantidades na aba ITENS.
+  // Para liberar camisas de uma reserva desistente, apague as linhas dela em RESERVAS e ITENS.
+  STOCK: { P: 150, M: 250, G: 400, GG: 200 },
   DEFAULT_PRICE: 22,                // usado se CONFIG!B5 estiver vazio/inválido
   DEFAULT_MAX: 3,                   // usado se CONFIG!B6 estiver vazio/inválido
   CODE_PREFIX: 'B22-',
@@ -44,7 +48,7 @@ const I = { CODIGO: 1, TAMANHO: 2, QTD: 3, ENTREGUE: 4 };
 
 function doGet() {
   const s = settings_();
-  return json_({ ok: true, open: CONFIG.RESERVATIONS_OPEN, price: s.price, max: s.max });
+  return json_({ ok: true, open: CONFIG.RESERVATIONS_OPEN, price: s.price, max: s.max, stock: remaining_() });
 }
 
 function doPost(e) {
@@ -74,7 +78,21 @@ function doPost(e) {
     const lock = LockService.getScriptLock();
     lock.waitLock(20000);
     try {
+      // Confere o estoque dentro da trava, para duas reservas simultâneas não passarem do limite.
+      const left = remaining_();
+      for (const size of Object.keys(v.items)) {
+        if (v.items[size] > left[size]) {
+          return json_({
+            ok: false,
+            error: left[size] === 0
+              ? 'O tamanho ' + size + ' esgotou. Remova do carrinho e escolha outro tamanho.'
+              : 'Só ' + (left[size] === 1 ? 'resta 1 camisa' : 'restam ' + left[size] + ' camisas') + ' no tamanho ' + size + '. Ajuste o carrinho e tente de novo.',
+            stock: left,
+          });
+        }
+      }
       const reservation = saveReservation_(v, s.price);
+      countReservation_(v.phone);
       return json_(Object.assign({ ok: true }, reservation));
     } finally {
       lock.releaseLock();
@@ -195,6 +213,25 @@ function uniqueCode_(sheet) {
   throw new Error('Falha ao gerar código único');
 }
 
+// Saldo por tamanho = estoque − tudo que já está na aba ITENS.
+function remaining_() {
+  const sh = mustGet_(ss_(), CONFIG.SHEET_ITENS);
+  const start = CONFIG.FIRST_DATA_ROW;
+  const last = sh.getLastRow();
+  const used = {};
+  CONFIG.SIZES.forEach(sz => { used[sz] = 0; });
+  if (last >= start) {
+    sh.getRange(start, I.CODIGO, last - start + 1, 3).getValues().forEach(row => {
+      const size = String(row[1]).trim().toUpperCase();
+      const qty = Number(row[2]) || 0;
+      if (row[0] && size in used) used[size] += qty;
+    });
+  }
+  const left = {};
+  CONFIG.SIZES.forEach(sz => { left[sz] = Math.max(0, CONFIG.STOCK[sz] - used[sz]); });
+  return left;
+}
+
 // Lê preço (CONFIG!B5) e máximo por reserva (CONFIG!B6).
 function settings_() {
   const sh = ss_().getSheetByName(CONFIG.SHEET_CONFIG);
@@ -250,13 +287,15 @@ function validate_(d, maxPerOrder) {
   return { name: name, phone: phone, items: items, qty: qty };
 }
 
+// Só reservas concluídas contam para o limite (tentativas recusadas não).
 function checkRateLimit_(phone) {
+  return Number(CacheService.getScriptCache().get('rl_' + phone) || 0) < CONFIG.RATE_LIMIT_MAX;
+}
+
+function countReservation_(phone) {
   const cache = CacheService.getScriptCache();
   const key = 'rl_' + phone;
-  const count = Number(cache.get(key) || 0);
-  if (count >= CONFIG.RATE_LIMIT_MAX) return false;
-  cache.put(key, String(count + 1), CONFIG.RATE_LIMIT_WINDOW_SEC);
-  return true;
+  cache.put(key, String(Number(cache.get(key) || 0) + 1), CONFIG.RATE_LIMIT_WINDOW_SEC);
 }
 
 /* ------------------------------------------------------------------ */
@@ -321,6 +360,7 @@ function verificarPlanilha() {
   if (String(hI[0]).indexOf('Código') !== 0 || hI[1] !== 'Tamanho') throw new Error('Cabeçalho da aba ITENS (linha 5) diferente do esperado: ' + hI.join(' | '));
   const s = settings_();
   Logger.log('Tudo certo ✅  Preço: R$ %s · Máximo por reserva: %s', s.price, s.max);
+  Logger.log('Saldo de camisas: %s', JSON.stringify(remaining_()));
 }
 
 /** Cria uma reserva de teste (aparece nas abas RESERVAS e ITENS). Apague a linha depois. */

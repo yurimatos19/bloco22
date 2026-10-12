@@ -3,7 +3,8 @@
 
   var PRICE = 22.00;
   var MAX = 3;
-  var SIZES = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG'];
+  var SIZES = ['P', 'M', 'G', 'GG'];
+  var LOW_STOCK = 20; // abaixo disso mostra "Últimas N"
   var ADDRESS = 'Avenida Herculano Bandeira, 766, Pina, Recife - PE';
   var MAPS_URL = 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(ADDRESS);
   var API_URL = ((window.BLOCO22_CONFIG || {}).API_URL || '').trim();
@@ -11,6 +12,7 @@
   var STORAGE_KEY = 'bloco22:ultima-reserva';
 
   var cart = []; // uma entrada por camisa, ex.: ['M', 'M', 'GG']
+  var stock = null; // saldo por tamanho vindo da planilha, ex.: { P: 150, M: 250, ... }
   var selected = null;
 
   var $ = function (id) { return document.getElementById(id); };
@@ -60,7 +62,9 @@
   SIZES.forEach(function (s) {
     var label = el('label', { class: 'size' });
     var input = el('input', { type: 'radio', name: 'size', value: s, 'aria-label': 'Tamanho ' + s });
-    label.append(input, el('span', { 'aria-hidden': 'true' }, s));
+    var face = el('span', { class: 'size__face', 'aria-hidden': 'true' });
+    face.append(el('b', null, s), el('small', { class: 'size__note' }));
+    label.append(input, face);
     sizesEl.appendChild(label);
   });
 
@@ -99,9 +103,38 @@
     return svg;
   }
 
+  // Quantas ainda dá para pôr no carrinho neste tamanho (sem saldo carregado, não limita)
+  function available(s) {
+    return stock ? Math.max(0, stock[s] - countOf(s)) : Infinity;
+  }
+
+  function loadStock() {
+    if (DEMO) return;
+    fetch(API_URL).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.stock) { stock = d.stock; render(); }
+    }).catch(function () { /* sem saldo: o servidor confere na hora de reservar */ });
+  }
+
   function render() {
     var t = total();
     var full = t >= MAX;
+
+    // disponibilidade por tamanho
+    sizesEl.querySelectorAll('.size').forEach(function (label) {
+      var input = label.querySelector('input');
+      var s = input.value;
+      var soldOut = stock && stock[s] === 0;
+      var left = available(s);
+      input.disabled = soldOut || left === 0;
+      label.classList.toggle('is-out', input.disabled);
+      var note = soldOut ? 'Esgotado'
+        : left === 0 ? 'Sem mais'
+        : stock && stock[s] <= LOW_STOCK ? 'Últimas ' + stock[s]
+        : '';
+      label.querySelector('.size__note').textContent = note;
+      input.setAttribute('aria-label', 'Tamanho ' + s + (note ? ', ' + note.toLowerCase() : ''));
+      if (input.disabled && selected === s) { selected = null; input.checked = false; }
+    });
 
     picker.disabled = full;
     addBtn.disabled = full || !selected;
@@ -241,10 +274,12 @@
     setLoading(true);
     send(payload)
       .then(function (res) {
+        if (res && res.stock) { stock = res.stock; render(); }
         if (!res || !res.ok) throw new Error((res && res.error) || 'Não foi possível concluir sua reserva.');
         saveLocal(res);
         resetForm();
         showSuccess(res, true);
+        loadStock();
       })
       .catch(function (err) {
         var msg = err && err.message && !/fetch|network|Load failed|JSON/i.test(err.message)
@@ -342,7 +377,7 @@
   /* ---------- Copiar endereço ---------- */
   document.querySelectorAll('.js-copy').forEach(function (b) {
     b.addEventListener('click', function () {
-      var txt = 'Comitê de Gilson Machado — Av. Herculano Bandeira, 766, Pina, Recife/PE';
+      var txt = 'Comitê da Direita Pernambucana — Av. Herculano Bandeira, 766, Pina, Recife/PE';
       (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject())
         .then(function () { toast('Endereço copiado'); })
         .catch(function () { toast(txt); });
@@ -424,7 +459,7 @@
     return '*Reserva Bloco do 22* — Código *' + r.code + '*\n' +
       r.items.map(function (i) { return i.qty + 'x ' + i.size; }).join(', ') +
       ' — Total ' + brl(r.total) + ' (pagar na retirada)\n\n' +
-      'Pagamento e retirada SOMENTE no Comitê de Gilson Machado\n' +
+      'Pagamento e retirada SOMENTE no Comitê da Direita Pernambucana\n' +
       'Av. Herculano Bandeira, 766 — Pina, Recife/PE\n' +
       'Segunda a sábado, das 9h às 18h. Não há entregas.\n' + MAPS_URL;
   }
@@ -478,7 +513,7 @@
     x.fillStyle = '#14246B'; x.font = '800 50px ' + D; x.textAlign = 'center';
     x.fillText('ONDE PAGAR E RETIRAR?', W / 2, y + 74);
     x.fillStyle = '#032814'; x.font = '800 40px ' + B;
-    x.fillText('Comitê de Gilson Machado', W / 2, y + 140);
+    x.fillText('Comitê da Direita Pernambucana', W / 2, y + 140);
     x.font = '600 34px ' + B;
     x.fillText('Av. Herculano Bandeira, 766 — Pina, Recife/PE', W / 2, y + 190);
     x.fillText('Segunda a sábado, das 9h às 18h', W / 2, y + 236);
@@ -564,4 +599,5 @@
   } catch (e) { /* sem storage */ }
 
   render();
+  loadStock();
 })();

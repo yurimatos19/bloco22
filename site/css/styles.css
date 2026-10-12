@@ -178,16 +178,24 @@ section[id] { scroll-margin-top: 40px; }
 .picker { border: 0; padding: 0; margin: 0 0 14px; min-width: 0; }
 .picker__label { padding: 0; margin-bottom: 8px; font-size: 14px; font-weight: 800; color: var(--g800); }
 .picker:disabled { opacity: .45; }
-.sizes { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.sizes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .size { position: relative; display: block; cursor: pointer; }
 .size input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.size span {
-  display: grid; place-items: center; height: 50px; border-radius: 12px; border: 2px solid var(--line); background: #fff;
-  font-family: var(--display); font-weight: 800; font-size: 15px; color: var(--g800); transition: border-color .15s, background .15s, color .15s, transform .12s;
+.size__face {
+  display: grid; place-items: center; align-content: center; gap: 1px; height: 60px; border-radius: 14px; border: 2px solid var(--line); background: #fff;
+  color: var(--g800); transition: border-color .15s, background .15s, color .15s, transform .12s;
 }
-.size:active span { transform: scale(.93); }
-.size input:checked + span { border-color: var(--g700); background: var(--g800); color: var(--y400); }
-.size input:focus-visible + span { outline: 3px solid var(--y400); outline-offset: 2px; }
+.size__face b { font-family: var(--display); font-weight: 800; font-size: 20px; line-height: 1; }
+.size__note { font-size: 11px; font-weight: 700; line-height: 1.1; color: var(--blue); }
+.size__note:empty { display: none; }
+.size:active .size__face { transform: scale(.94); }
+.size input:checked + .size__face { border-color: var(--g700); background: var(--g800); color: var(--y400); }
+.size input:checked + .size__face .size__note { color: var(--y300); }
+.size input:focus-visible + .size__face { outline: 3px solid var(--y400); outline-offset: 2px; }
+.size.is-out { cursor: not-allowed; }
+.size.is-out .size__face { background: #F1F3F1; color: #9AA59E; border-style: dashed; }
+.size.is-out .size__face b { text-decoration: line-through; }
+.size.is-out .size__note { color: var(--muted); }
 .picker:disabled .size { cursor: not-allowed; }
 
 .btn--green { background: var(--g600); color: #fff; box-shadow: 0 4px 0 var(--g800); }

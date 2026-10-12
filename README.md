@@ -1,7 +1,7 @@
 # Bloco do 22 Recife — Reserva de camisas
 
 Site de reserva da camisa oficial (R$ 22,00). **Sem pagamento online e sem entregas**:
-pagamento e retirada exclusivamente no Comitê de Gilson Machado — Av. Herculano Bandeira, 766, Pina, Recife/PE (seg. a sáb., 9h–18h).
+pagamento e retirada exclusivamente no Comitê da Direita Pernambucana — Av. Herculano Bandeira, 766, Pina, Recife/PE (seg. a sáb., 9h–18h).
 
 ```
 site/              → site estático (HTML/CSS/JS puro, sem build)
@@ -54,9 +54,15 @@ python3 -m http.server 5522 -d site
 4. Mude **Entregue?** para **Sim** — a "Data/hora retirada" é preenchida sozinha. Preencha o Atendente.
 5. Acompanhe totais e pendências por tamanho na aba **PAINEL**.
 
+## Estoque
+
+1.000 camisas: **P 150 · M 250 · G 400 · GG 200** (em `CONFIG.STOCK`, no `Code.gs`).
+O saldo é calculado somando a aba ITENS. O site mostra "Últimas N" (≤ 20) e "Esgotado", e o servidor recusa
+reservas acima do saldo. Para devolver ao estoque as camisas de quem desistiu, apague as linhas da reserva em RESERVAS e ITENS.
+
 ## Regras implementadas
 
-- Carrinho tradicional: escolhe o tamanho → "Adicionar ao carrinho", uma camisa por linha (com lixeira), até 3 por reserva, tamanhos PP a XXG combináveis.
+- Carrinho tradicional: escolhe o tamanho → "Adicionar ao carrinho", uma camisa por linha (com lixeira), até 3 por reserva, tamanhos P, M, G e GG combináveis.
 - Nome completo e WhatsApp (celular com DDD) obrigatórios.
 - Caixa de confirmação obrigatória com o texto oficial — sem ela o botão fica desabilitado e o servidor recusa.
 - Preço e total recalculados **no servidor** (o site não define o valor gravado).
