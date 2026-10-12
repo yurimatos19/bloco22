@@ -10,7 +10,9 @@
  *
  * O site envia a reserva → o script valida, confere o estoque e grava em Reservas.
  * Cancelar uma reserva (Status = Cancelado) devolve as camisas ao estoque.
- * Limite por pessoa: cada WhatsApp pode ter no total CFG_MAX camisas em reservas não canceladas.
+ * Limite por pessoa: cada WhatsApp pode ter no total CFG_MAX camisas em reservas ativas.
+ * Validade: a reserva vale 2 dias (domingo não conta), até as 18h. Vencida → Status "Expirado"
+ * (automático, de hora em hora), as camisas voltam ao estoque e a pessoa pode reservar de novo.
  *
  * INSTALAÇÃO (uma vez): cole este código, rode `ativar` e depois publique uma nova versão
  * em Implantar → Gerenciar implantações (a URL do site não muda).
@@ -21,7 +23,10 @@ const APP = {
   SPREADSHEET_ID: '1mjnLKelq4nEKKi9UhNNnodgJvK9-_zIo6tKXsoFxssM',
   SIZES: ['P', 'M', 'G', 'GG'],
   SHEETS: { PAINEL: 'Painel', BALCAO: 'Balcão', RESERVAS: 'Reservas', CONFIG: 'Configurações', GUIA: 'Como usar' },
-  STATUS: { RESERVADO: 'Reservado', ENTREGUE: 'Entregue', CANCELADO: 'Cancelado' },
+  STATUS: { RESERVADO: 'Reservado', ENTREGUE: 'Entregue', CANCELADO: 'Cancelado', EXPIRADO: 'Expirado' },
+  HOLD_DAYS: 2,                 // validade da reserva, em dias (domingo não conta)
+  PICKUP_HOUR: 18,              // a reserva vence às 18h do último dia
+  LAST_PICKUP_DAY: '2026-10-22', // nenhum prazo passa do dia do evento
   TZ: 'America/Recife',
   // Valores iniciais da aba Configurações (depois a equipe edita lá mesmo)
   DEFAULTS: {
@@ -49,8 +54,8 @@ const COLOR = {
 };
 
 // Colunas da aba Reservas (1 = A)
-const COL = { CODIGO: 1, DATA: 2, NOME: 3, WHATS: 4, P: 5, M: 6, G: 7, GG: 8, QTD: 9, TOTAL: 10, STATUS: 11, ATENDENTE: 12, RETIRADA: 13, OBS: 14 };
-const HEADERS = ['Código', 'Reservado em', 'Nome completo', 'WhatsApp', 'P', 'M', 'G', 'GG', 'Qtd.', 'Total', 'Status', 'Atendente', 'Retirado em', 'Observações'];
+const COL = { CODIGO: 1, DATA: 2, NOME: 3, WHATS: 4, P: 5, M: 6, G: 7, GG: 8, QTD: 9, TOTAL: 10, STATUS: 11, ATENDENTE: 12, RETIRADA: 13, OBS: 14, PRAZO: 15 };
+const HEADERS = ['Código', 'Reservado em', 'Nome completo', 'WhatsApp', 'P', 'M', 'G', 'GG', 'Qtd.', 'Total', 'Status', 'Atendente', 'Retirado em', 'Observações', 'Retirar até'];
 const NCOLS = HEADERS.length;
 
 /* ------------------------------------------------------------------ */
@@ -137,8 +142,10 @@ function saveReservation_(v, price) {
   const code = uniqueCode_(sh);
   const now = new Date();
   const total = Math.round(v.qty * price * 100) / 100;
+  const deadline = deadline_(now);
 
   const row = sh.getLastRow() + 1;
+  sh.getRange(row, COL.PRAZO).setNumberFormat('dd/MM/yyyy HH:mm');
   sh.getRange(row, COL.WHATS).setNumberFormat('@');
   sh.getRange(row, COL.DATA).setNumberFormat('dd/MM/yyyy HH:mm');
   sh.getRange(row, COL.RETIRADA).setNumberFormat('dd/MM/yyyy HH:mm');
@@ -148,7 +155,7 @@ function saveReservation_(v, price) {
   sh.getRange(row, 1, 1, NCOLS).setValues([[
     code, horaRecife_(now), safe_(v.name), formatPhone_(v.phone),
     ...APP.SIZES.map(sz => v.items[sz] || ''),
-    v.qty, total, APP.STATUS.RESERVADO, '', '', '',
+    v.qty, total, APP.STATUS.RESERVADO, '', '', '', deadline.sheet,
   ]]);
   SpreadsheetApp.flush();
 
@@ -159,31 +166,90 @@ function saveReservation_(v, price) {
     qty: v.qty,
     total: total,
     createdAt: now.toISOString(),
+    deadline: deadline.label,   // ex.: "qua, 14/10, às 18h"
+    deadlineAt: deadline.iso,
   };
 }
 
-// Camisas que um WhatsApp já tem em reservas não canceladas.
+// Prazo de retirada: dia da reserva + HOLD_DAYS (pulando domingo), às 18h, no máximo no dia do evento.
+function deadline_(now) {
+  const [y, m, d] = Utilities.formatDate(now, APP.TZ, 'yyyy-MM-dd').split('-').map(Number);
+  const day = new Date(Date.UTC(y, m - 1, d));
+  let added = 0;
+  while (added < APP.HOLD_DAYS) {
+    day.setUTCDate(day.getUTCDate() + 1);
+    if (day.getUTCDay() !== 0) added++;
+  }
+  const [ly, lm, ld] = APP.LAST_PICKUP_DAY.split('-').map(Number);
+  const last = new Date(Date.UTC(ly, lm - 1, ld));
+  if (day > last) day.setTime(last.getTime());
+  const pad = n => String(n).padStart(2, '0');
+  const ymd = day.getUTCFullYear() + '-' + pad(day.getUTCMonth() + 1) + '-' + pad(day.getUTCDate());
+  const hh = pad(APP.PICKUP_HOUR);
+  const weekdays = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  return {
+    sheet: ymd + ' ' + hh + ':00:00',                         // gravado na planilha (horário de Recife)
+    iso: ymd + 'T' + hh + ':00:00-03:00',                     // para o site
+    label: weekdays[day.getUTCDay()] + ', ' + pad(day.getUTCDate()) + '/' + pad(day.getUTCMonth() + 1) + ', às ' + APP.PICKUP_HOUR + 'h',
+    date: new Date(ymd + 'T' + hh + ':00:00-03:00'),
+  };
+}
+
+// Reserva ainda vale? (Reservado e dentro do prazo)
+function isActive_(row, now) {
+  const status = row[COL.STATUS - 1];
+  if (!row[COL.CODIGO - 1]) return false;
+  if (isValue_(status, APP.STATUS.ENTREGUE)) return true;
+  if (!isValue_(status, APP.STATUS.RESERVADO)) return false; // Cancelado ou Expirado
+  return !isPastDeadline_(row[COL.PRAZO - 1], now);
+}
+
+function isPastDeadline_(prazo, now) {
+  if (!prazo) return false;
+  const d = prazo instanceof Date ? prazo : new Date(String(prazo).replace(' ', 'T') + '-03:00');
+  return !isNaN(d) && d.getTime() < now.getTime();
+}
+
+/** Gatilho de hora em hora (instalado por ativar): marca como Expirado as reservas vencidas. */
+function expirarReservas() {
+  const sh = sheet_(APP.SHEETS.RESERVAS);
+  const last = sh.getLastRow();
+  if (last < 2) return;
+  const now = new Date();
+  const status = sh.getRange(2, COL.STATUS, last - 1, 1);
+  const st = status.getValues();
+  const prazos = sh.getRange(2, COL.PRAZO, last - 1, 1).getValues();
+  let changed = 0;
+  st.forEach((r, i) => {
+    if (isValue_(r[0], APP.STATUS.RESERVADO) && isPastDeadline_(prazos[i][0], now)) { r[0] = APP.STATUS.EXPIRADO; changed++; }
+  });
+  if (changed) status.setValues(st);
+}
+
+// Camisas que um WhatsApp já tem em reservas ativas (não canceladas nem vencidas).
 function shirtsByPhone_(phone) {
   const sh = sheet_(APP.SHEETS.RESERVAS);
   const last = sh.getLastRow();
   if (last < 2) return 0;
   let total = 0;
-  sh.getRange(2, 1, last - 1, COL.STATUS).getValues().forEach(r => {
-    if (!r[COL.CODIGO - 1] || isValue_(r[COL.STATUS - 1], APP.STATUS.CANCELADO)) return;
+  const now = new Date();
+  sh.getRange(2, 1, last - 1, NCOLS).getValues().forEach(r => {
+    if (!isActive_(r, now)) return;
     if (String(r[COL.WHATS - 1]).replace(/\D/g, '').slice(-11) === phone) total += Number(r[COL.QTD - 1]) || 0;
   });
   return total;
 }
 
-// Saldo por tamanho = estoque − camisas em reservas que não foram canceladas.
+// Saldo por tamanho = estoque − camisas em reservas ativas (entregues ou dentro do prazo).
 function remaining_(stock) {
   const sh = sheet_(APP.SHEETS.RESERVAS);
   const last = sh.getLastRow();
   const used = {};
   APP.SIZES.forEach(sz => { used[sz] = 0; });
   if (last >= 2) {
-    sh.getRange(2, 1, last - 1, COL.STATUS).getValues().forEach(r => {
-      if (!r[COL.CODIGO - 1] || isValue_(r[COL.STATUS - 1], APP.STATUS.CANCELADO)) return;
+    const now = new Date();
+    sh.getRange(2, 1, last - 1, NCOLS).getValues().forEach(r => {
+      if (!isActive_(r, now)) return;
       APP.SIZES.forEach(sz => { used[sz] += Number(r[COL[sz] - 1]) || 0; });
     });
   }
@@ -353,10 +419,15 @@ function onBalcaoEdit_(e) {
     });
 
     if (!found.length) return say('Nenhuma reserva ativa encontrada para "' + query + '". Confira o código ou o número.', false);
-    const pending = found.filter(f => !isValue_(f.data[COL.STATUS - 1], APP.STATUS.ENTREGUE));
+    const now = new Date();
+    const delivered = found.filter(f => isValue_(f.data[COL.STATUS - 1], APP.STATUS.ENTREGUE));
+    const pending = found.filter(f => isValue_(f.data[COL.STATUS - 1], APP.STATUS.RESERVADO) && !isPastDeadline_(f.data[COL.PRAZO - 1], now));
     if (!pending.length) {
-      const f = found[found.length - 1].data;
-      return say('Essa reserva já foi entregue' + (f[COL.ATENDENTE - 1] ? ' por ' + f[COL.ATENDENTE - 1] : '') + '. Não entregue de novo.', false);
+      if (delivered.length) {
+        const f = delivered[delivered.length - 1].data;
+        return say('Essa reserva já foi entregue' + (f[COL.ATENDENTE - 1] ? ' por ' + f[COL.ATENDENTE - 1] : '') + '. Não entregue de novo.', false);
+      }
+      return say('Essa reserva venceu (o prazo de retirada passou). Peça para a pessoa reservar de novo pelo site, se ainda houver o tamanho.', false);
     }
     if (pending.length > 1) {
       return say('Esse WhatsApp tem ' + pending.length + ' reservas pendentes. Digite o código da reserva para dar baixa na certa.', false);
@@ -406,17 +477,59 @@ function ativar() {
   const bal = sheet_(APP.SHEETS.BALCAO);
   checkbox_(bal.getRange('B5'), false);
   bal.getRange('A9').setFormula(
-    '=ARRAYFORMULA(IF($B$3="","",IFERROR(FILTER(Reservas!A2:N,' +
+    '=ARRAYFORMULA(IF($B$3="","",IFERROR(FILTER(Reservas!A2:O,' +
       '(Reservas!A2:A=UPPER(TRIM($B$3)))+' +
       'IF(LEN(REGEXREPLACE($B$3&"","\\D",""))>=8,RIGHT(REGEXREPLACE(Reservas!D2:D&"","\\D",""),LEN(REGEXREPLACE($B$3&"","\\D","")))=REGEXREPLACE($B$3&"","\\D",""),FALSE)' +
       '),"Nenhuma reserva encontrada para esse código ou WhatsApp.")))');
 
-  // Painel: todas as fórmulas
-  painelFormulas_(sheet_(APP.SHEETS.PAINEL));
+  bal.getRange(8, COL.PRAZO).setValue('Retirar até');
+  bal.getRange(8, COL.OBS).copyFormatToRange(bal, COL.PRAZO, COL.PRAZO, 8, 8);
+  bal.getRange(9, COL.OBS, 20, 1).copyFormatToRange(bal, COL.PRAZO, COL.PRAZO, 9, 28);
+  bal.getRange(9, COL.PRAZO, 20, 1).setNumberFormat('dd/MM/yyyy HH:mm');
+  bal.setColumnWidth(COL.PRAZO, 140);
 
-  // Reservas: filtro
+  // Painel: todas as fórmulas
+  const painel = sheet_(APP.SHEETS.PAINEL);
+  painelFormulas_(painel);
+  painel.getRange('G8').setValue('Canceladas ou vencidas');
+
+  // Reservas: coluna "Retirar até", status Expirado, cores e filtro
   const rs = sheet_(APP.SHEETS.RESERVAS);
-  if (!rs.getFilter()) rs.getRange(1, 1, rs.getMaxRows(), NCOLS).createFilter();
+  if (rs.getMaxColumns() < NCOLS) rs.insertColumnsAfter(rs.getMaxColumns(), NCOLS - rs.getMaxColumns());
+  rs.getRange(1, COL.PRAZO).setValue('Retirar até');
+  rs.getRange(1, COL.OBS).copyFormatToRange(rs, COL.PRAZO, COL.PRAZO, 1, 1);
+  rs.getRange(2, COL.PRAZO, rs.getMaxRows() - 1, 1).setNumberFormat('dd/MM/yyyy HH:mm');
+  rs.setColumnWidth(COL.PRAZO, 140);
+  const statusCol = rs.getRange(2, COL.STATUS, rs.getMaxRows() - 1, 1);
+  statusCol.setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList([APP.STATUS.RESERVADO, APP.STATUS.ENTREGUE, APP.STATUS.CANCELADO, APP.STATUS.EXPIRADO], true)
+    .setAllowInvalid(false).build());
+  const data = rs.getRange(2, 1, rs.getMaxRows() - 1, NCOLS);
+  rs.setConditionalFormatRules([
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=OR($K2="Cancelado",$K2="Expirado")')
+      .setFontColor(COLOR.grey).setRanges([data]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(APP.STATUS.ENTREGUE)
+      .setBackground(COLOR.green100).setFontColor(COLOR.green800).setBold(true).setRanges([statusCol]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(APP.STATUS.RESERVADO)
+      .setBackground(COLOR.yellow50).setFontColor('#5C4A00').setBold(true).setRanges([statusCol]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=AND($A2<>"",MOD(ROW(),2)=1)')
+      .setBackground(COLOR.paper).setRanges([data]).build(),
+  ]);
+  if (rs.getFilter()) rs.getFilter().remove();
+  rs.getRange(1, 1, rs.getMaxRows(), NCOLS).createFilter();
+  expirarReservas();
+
+  // Configurações e guia: validade da reserva
+  cfg.getRange('A22:B22').setValues([['Validade da reserva', APP.HOLD_DAYS + ' dias (domingo não conta), até as ' + APP.PICKUP_HOUR + 'h']]);
+  cfg.getRange('A21:B21').copyFormatToRange(cfg, 1, 2, 22, 22);
+  const guia = sheet_(APP.SHEETS.GUIA);
+  const guiaTxt = guia.getRange(1, 2, guia.getLastRow(), 1).getValues().map(r => String(r[0]));
+  const aviso = 'Reservas não retiradas no prazo (2 dias, domingo não conta, até as 18h) viram Expirado sozinhas e as camisas voltam ao estoque. O prazo aparece na coluna Retirar até.';
+  if (guiaTxt.indexOf(aviso) === -1) {
+    const r = guia.getLastRow() + 2;
+    guia.getRange(r, 1, 1, 2).setValues([['!', aviso]]);
+    guia.getRange(r - 3, 1, 1, 2).copyFormatToRange(guia, 1, 2, r, r);
+  }
 
   // Avisos antes de editar o que não deve ser mexido (não bloqueia ninguém)
   protectRange_(rs.getRange(1, 1, rs.getMaxRows(), COL.TOTAL), 'Preenchido pelo site — evite editar');
@@ -425,6 +538,7 @@ function ativar() {
     [bal.getRange('B3:C3'), bal.getRange('B4:C4'), bal.getRange('B5')]);
 
   installTrigger_(ss.getId());
+  installHourlyTrigger_();
   SpreadsheetApp.flush();
 
   const s = settings_();
@@ -440,15 +554,15 @@ function painelFormulas_(sh) {
   const ST = 'SUM(INDEX(CFG_ESTOQUE,0,2))';
   // Cartões: valor na linha de baixo do rótulo
   const cards = {
-    A5: '=COUNTIFS(' + R + 'A2:A,"<>",' + S + ',"<>Cancelado")',
-    C5: '=SUMIFS(' + R + 'I2:I,' + S + ',"<>Cancelado")',
+    A5: '=COUNTIFS(' + R + 'A2:A,"<>",' + S + ',"<>Cancelado",' + S + ',"<>Expirado")',
+    C5: '=SUMIFS(' + R + 'I2:I,' + S + ',"<>Cancelado",' + S + ',"<>Expirado")',
     C6: '="de "&' + ST + '&" camisas"',
     E5: '=SUMIFS(' + R + 'I2:I,' + S + ',"Entregue")',
     G5: '=C5-E5',
     A9: '=MAX(0,' + ST + '-C5)',
     C9: '=SUMIFS(' + R + 'J2:J,' + S + ',"Reservado")',
     E9: '=SUMIFS(' + R + 'J2:J,' + S + ',"Entregue")',
-    G9: '=COUNTIF(' + S + ',"Cancelado")',
+    G9: '=COUNTIF(' + S + ',"Cancelado")+COUNTIF(' + S + ',"Expirado")',
   };
   Object.keys(cards).forEach(a1 => sh.getRange(a1).setFormula(cards[a1]));
   ['C9', 'E9'].forEach(a1 => sh.getRange(a1).setNumberFormat('"R$" #,##0.00'));
@@ -461,7 +575,7 @@ function painelFormulas_(sh) {
     sh.getRange(r, 1, 1, 8).setFormulas([[
       '="' + sz + '"',
       '=INDEX(CFG_ESTOQUE,' + (i + 1) + ',2)',
-      '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"<>Cancelado")',
+      '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"<>Cancelado",' + S + ',"<>Expirado")',
       '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"Entregue")',
       '=C' + r + '-D' + r,
       '=MAX(0,B' + r + '-C' + r + ')',
@@ -510,6 +624,13 @@ function verPlanilha() {
   const s = settings_();
   Logger.log('Preço R$ %s, máximo %s por reserva, reservas abertas: %s', s.price, s.max, s.open ? 'sim' : 'não');
   Logger.log('Saldo: %s', JSON.stringify(remaining_(s.stock)));
+}
+
+function installHourlyTrigger_() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'expirarReservas')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('expirarReservas').timeBased().everyHours(1).create();
 }
 
 function installTrigger_(id) {

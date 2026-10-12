@@ -347,6 +347,9 @@
       list.appendChild(li);
     });
     $('r-qty').textContent = plural(r.qty);
+    var dl = $('r-deadline');
+    dl.textContent = r.deadline ? 'Retire até ' + r.deadline : '';
+    dl.hidden = !r.deadline;
     $('r-total').textContent = brl(r.total);
 
     lastFocus = document.activeElement;
@@ -409,11 +412,12 @@
       ' — Total ' + brl(r.total) + ' (pagar na retirada)\n\n' +
       'Pagamento e retirada SOMENTE no Comitê da Direita Pernambucana\n' +
       'Av. Herculano Bandeira, 766 — Pina, Recife/PE\n' +
+      (r.deadline ? 'Retire até ' + r.deadline + '.\n' : '') +
       'Segunda a sábado, das 9h às 18h. Não há entregas.\n' + MAPS_URL;
   }
 
   function buildReceipt(r) {
-    var W = 1080, P = 72, BOX = 380;
+    var W = 1080, P = 72, BOX = r.deadline ? 450 : 380;
     var H = 730 + r.items.length * 56 + 78 + BOX + 56;
     var c = document.createElement('canvas');
     c.width = W; c.height = H;
@@ -465,7 +469,13 @@
     x.font = '600 34px ' + B;
     x.fillText('Av. Herculano Bandeira, 766 — Pina, Recife/PE', W / 2, y + 190);
     x.fillText('Segunda a sábado, das 9h às 18h', W / 2, y + 236);
-    x.font = '800 30px ' + B;
+    if (r.deadline) {
+      x.fillStyle = '#032814'; roundRect(x, W / 2 - 330, y + 262, 660, 60, 30); x.fill();
+      x.fillStyle = '#FFD21F'; x.font = '800 32px ' + B;
+      x.fillText('Retire até ' + r.deadline, W / 2, y + 304);
+      y += 70;
+    }
+    x.fillStyle = '#032814'; x.font = '800 30px ' + B;
     wrap(x, 'Sua camisa NÃO foi paga pelo site. O pagamento é feito no momento da retirada. Não fazemos entregas.', W / 2, y + 300, W - 2 * P - 40, 42);
     return c;
   }
@@ -543,7 +553,9 @@
   }
   try {
     var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    if (saved && saved.code && Array.isArray(saved.items)) addReopen(saved);
+    var expired = saved && saved.deadlineAt && new Date(saved.deadlineAt) < new Date();
+    if (expired) localStorage.removeItem(STORAGE_KEY);
+    else if (saved && saved.code && Array.isArray(saved.items)) addReopen(saved);
   } catch (e) { /* sem storage */ }
 
   render();

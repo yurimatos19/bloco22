@@ -97,7 +97,7 @@
         <ol class="timeline">
           <li><b>Reserve aqui</b><span>Escolha o tamanho e informe nome e WhatsApp. Leva um minuto.</span></li>
           <li><b>Guarde o código</b><span>Você recebe um código como B22-K7M4P. Salve o comprovante ou tire print.</span></li>
-          <li><b>Pague e retire no Comitê</b><span>Av. Herculano Bandeira, 766, no Pina. Segunda a sábado, das 9h às 18h.</span></li>
+          <li><b>Pague e retire em até 2 dias</b><span>No Comitê, Av. Herculano Bandeira, 766, no Pina. Segunda a sábado, das 9h às 18h.</span></li>
         </ol>
       </div>
     </section>
@@ -141,7 +141,7 @@
     <section id="reservar" class="reserve" aria-labelledby="reserva-titulo">
       <div class="wrap">
         <h2 id="reserva-titulo" class="h2 h2--light">Reserve sua camisa</h2>
-        <p class="sub sub--light">Tiragem limitada: 1.000 camisas. É 1 camisa por pessoa.</p>
+        <p class="sub sub--light">Tiragem limitada: 1.000 camisas. É 1 camisa por pessoa, e a reserva vale 2 dias.</p>
         <div id="reopen-slot"></div>
 
         <form id="reserve-form" class="panel" novalidate>
@@ -270,6 +270,7 @@
           <details><summary>Existe outro ponto de retirada?</summary><p>Não. O único local é o Comitê da Direita Pernambucana — Av. Herculano Bandeira, 766, Pina, Recife/PE.</p></details>
           <details><summary>Quantas camisas posso reservar?</summary><p>Uma por pessoa. Cada WhatsApp pode reservar 1 camisa, nos tamanhos P, M, G ou GG.</p></details>
           <details><summary>Posso reservar para outra pessoa?</summary><p>Cada pessoa faz a própria reserva, com o próprio nome e WhatsApp. É 1 camisa por pessoa.</p></details>
+          <details><summary>Quanto tempo tenho para retirar?</summary><p>2 dias a partir da reserva, até as 18h. Domingo não conta, porque o Comitê fecha. O prazo aparece no seu comprovante. Depois disso a reserva vence e a camisa volta para o estoque, mas você pode reservar de novo se ainda houver o seu tamanho.</p></details>
           <details><summary>E se o meu tamanho esgotar?</summary><p>Cada tamanho tem uma quantidade limitada. Quando acaba, ele aparece como esgotado e não dá para reservar. Escolha outro tamanho disponível.</p></details>
           <details><summary>O que levar na retirada?</summary><p>O código da reserva (print ou comprovante) e o valor: R$ 22,00 por camisa. O pagamento é feito na hora.</p></details>
         </div>
@@ -320,6 +321,7 @@
         <div class="ticket__cut" aria-hidden="true"></div>
         <div class="ticket__pickup">
           <p class="pickup__title">ONDE PAGAR E RETIRAR?</p>
+          <p class="pickup__deadline" id="r-deadline" hidden></p>
           <p class="pickup__place"><strong>Comitê da Direita Pernambucana</strong><br>Av. Herculano Bandeira, 766 — Pina, Recife/PE.<br>Segunda a sábado, das 9h às 18h.</p>
           <p class="pickup__warn"><strong>Importante:</strong> sua camisa não foi paga pelo site. O pagamento será realizado presencialmente no momento da retirada.</p>
         </div>
