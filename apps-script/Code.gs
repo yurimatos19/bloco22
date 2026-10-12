@@ -1,7 +1,7 @@
 /**
  * BLOCO DO 22 — Sistema de reservas (Google Apps Script)
  *
- * Planilha (criada por `criarPlanilhaNova`):
+ * Planilha "Bloco do 22 — Reservas de camisas":
  *   • Painel         — números do dia e estoque por tamanho (só fórmulas)
  *   • Balcão         — busca por código ou WhatsApp e caixa "Entregue" para o atendente
  *   • Reservas       — 1 linha por pedido; colunas P, M, G, GG; Status Reservado/Entregue/Cancelado
@@ -11,11 +11,13 @@
  * O site envia a reserva → o script valida, confere o estoque e grava em Reservas.
  * Cancelar uma reserva (Status = Cancelado) devolve as camisas ao estoque.
  *
- * INSTALAÇÃO (uma vez): cole este código, rode `criarPlanilhaNova` e depois publique
- * uma nova versão em Implantar → Gerenciar implantações (a URL do site não muda).
+ * INSTALAÇÃO (uma vez): cole este código, rode `ativar` e depois publique uma nova versão
+ * em Implantar → Gerenciar implantações (a URL do site não muda).
  */
 
 const APP = {
+  // Planilha "Bloco do 22 — Reservas de camisas" (ID que aparece na URL dela)
+  SPREADSHEET_ID: '1mjnLKelq4nEKKi9UhNNnodgJvK9-_zIo6tKXsoFxssM',
   SIZES: ['P', 'M', 'G', 'GG'],
   SHEETS: { PAINEL: 'Painel', BALCAO: 'Balcão', RESERVAS: 'Reservas', CONFIG: 'Configurações', GUIA: 'Como usar' },
   STATUS: { RESERVADO: 'Reservado', ENTREGUE: 'Entregue', CANCELADO: 'Cancelado' },
@@ -49,7 +51,6 @@ const COLOR = {
 const COL = { CODIGO: 1, DATA: 2, NOME: 3, WHATS: 4, P: 5, M: 6, G: 7, GG: 8, QTD: 9, TOTAL: 10, STATUS: 11, ATENDENTE: 12, RETIRADA: 13, OBS: 14 };
 const HEADERS = ['Código', 'Reservado em', 'Nome completo', 'WhatsApp', 'P', 'M', 'G', 'GG', 'Qtd.', 'Total', 'Status', 'Atendente', 'Retirado em', 'Observações'];
 const NCOLS = HEADERS.length;
-const WIDTHS = [100, 130, 220, 135, 44, 44, 44, 44, 52, 90, 110, 130, 130, 260];
 
 /* ------------------------------------------------------------------ */
 /* Endpoints do site                                                  */
@@ -125,6 +126,12 @@ function saveReservation_(v, price) {
   const total = Math.round(v.qty * price * 100) / 100;
 
   const row = sh.getLastRow() + 1;
+  sh.getRange(row, COL.WHATS).setNumberFormat('@');
+  sh.getRange(row, COL.DATA).setNumberFormat('dd/MM/yyyy HH:mm');
+  sh.getRange(row, COL.RETIRADA).setNumberFormat('dd/MM/yyyy HH:mm');
+  sh.getRange(row, COL.TOTAL).setNumberFormat('"R$" #,##0.00');
+  sh.getRange(row, COL.P, 1, 5).setHorizontalAlignment('center');
+  sh.getRange(row, COL.CODIGO).setFontWeight('bold');
   sh.getRange(row, 1, 1, NCOLS).setValues([[
     code, horaRecife_(now), safe_(v.name), formatPhone_(v.phone),
     ...APP.SIZES.map(sz => v.items[sz] || ''),
@@ -197,7 +204,7 @@ function settings_() {
   return {
     price: num('CFG_PRECO', APP.DEFAULTS.price),
     max: Math.floor(num('CFG_MAX', APP.DEFAULTS.max)),
-    open: open ? open.getValue() === true : true,
+    open: open ? isOn_(open.getValue()) : true,
     stock: stock,
   };
 }
@@ -256,7 +263,7 @@ function countReservation_(phone) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Automação na planilha (gatilho instalado por criarPlanilhaNova)    */
+/* Automação na planilha (gatilho instalado por ativar)              */
 /* ------------------------------------------------------------------ */
 
 function aoEditar(e) {
@@ -288,7 +295,8 @@ function onReservasEdit_(e) {
 // Balcão: marcar a caixa "Entregue" (B5) dá baixa na reserva buscada.
 function onBalcaoEdit_(e) {
   const sh = e.range.getSheet();
-  if (e.range.getA1Notation() !== 'B5' || e.range.getValue() !== true) return;
+  if (e.range.getA1Notation() !== 'B5' || !isOn_(e.range.getValue())) return;
+  const isBox = typeof e.range.getValue() === 'boolean';
 
   const say = (msg, ok) => sh.getRange('B6')
     .setValue(msg)
@@ -334,58 +342,134 @@ function onBalcaoEdit_(e) {
     say('Entregue: ' + f.data[COL.CODIGO - 1] + ' — ' + f.data[COL.NOME - 1] + ' (' + resumo + '). Valor recebido: R$ ' +
       Number(f.data[COL.TOTAL - 1]).toFixed(2).replace('.', ',') + '.', true);
   } finally {
-    sh.getRange('B5').setValue(false);
+    sh.getRange('B5').setValue(isBox ? false : 'Não');
     lock.releaseLock();
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* Criação da planilha                                                */
+/* Ativação da planilha                                               */
 /* ------------------------------------------------------------------ */
 
 /**
- * RODE UMA VEZ pelo editor. Cria a planilha nova, completa e formatada, liga o site a ela
- * e instala a automação. A planilha antiga não é apagada (fica como histórico).
+ * RODE UMA VEZ pelo editor (pode rodar de novo sem problema). Liga o site à planilha:
+ * acerta fuso e idioma, cria as caixinhas de marcar, (re)escreve as fórmulas do Painel e do
+ * Balcão, adiciona os avisos de proteção e instala a automação do Balcão e do Status.
  */
-function criarPlanilhaNova() {
-  const props = PropertiesService.getScriptProperties();
-  const existing = props.getProperty('SPREADSHEET_ID');
-  if (existing) {
-    try {
-      Logger.log('A planilha já existe: %s', SpreadsheetApp.openById(existing).getUrl());
-      Logger.log('Para criar outra do zero, rode desligarPlanilha() e depois criarPlanilhaNova() de novo.');
-      return;
-    } catch (e) { /* arquivo apagado: cria outro */ }
-  }
-
-  const ss = SpreadsheetApp.create('Bloco do 22 — Reservas de camisas');
-  ss.setSpreadsheetLocale('pt_BR');
+function ativar() {
+  const ss = ss_();
   ss.setSpreadsheetTimeZone(APP.TZ);
+  ss.setSpreadsheetLocale('pt_BR');
 
-  const painel = ss.getSheets()[0].setName(APP.SHEETS.PAINEL);
-  const balcao = ss.insertSheet(APP.SHEETS.BALCAO, 1);
-  const reservas = ss.insertSheet(APP.SHEETS.RESERVAS, 2);
-  const config = ss.insertSheet(APP.SHEETS.CONFIG, 3);
-  const guia = ss.insertSheet(APP.SHEETS.GUIA, 4);
+  // Configurações: intervalos nomeados, caixa "Reservas abertas" e total do estoque
+  const cfg = sheet_(APP.SHEETS.CONFIG);
+  named_(ss, 'CFG_PRECO', cfg.getRange('B5'));
+  named_(ss, 'CFG_MAX', cfg.getRange('B6'));
+  named_(ss, 'CFG_ABERTAS', cfg.getRange('B7'));
+  named_(ss, 'CFG_ESTOQUE', cfg.getRange('A11:B14'));
+  checkbox_(cfg.getRange('B7'), isOn_(cfg.getRange('B7').getValue()));
+  cfg.getRange('B15').setFormula('=SUM(B11:B14)');
 
-  buildConfig_(ss, config);     // primeiro: cria os intervalos nomeados usados pelas fórmulas
-  buildReservas_(reservas);
-  buildPainel_(painel);
-  buildBalcao_(balcao);
-  buildGuia_(guia);
-  ss.setActiveSheet(painel);
+  // Balcão: caixa "Entregue" e busca
+  const bal = sheet_(APP.SHEETS.BALCAO);
+  checkbox_(bal.getRange('B5'), false);
+  bal.getRange('A9').setFormula(
+    '=ARRAYFORMULA(IF($B$3="","",IFERROR(FILTER(Reservas!A2:N,' +
+      '(Reservas!A2:A=UPPER(TRIM($B$3)))+' +
+      'IF(LEN(REGEXREPLACE($B$3&"","\\D",""))>=8,RIGHT(REGEXREPLACE(Reservas!D2:D&"","\\D",""),LEN(REGEXREPLACE($B$3&"","\\D","")))=REGEXREPLACE($B$3&"","\\D",""),FALSE)' +
+      '),"Nenhuma reserva encontrada para esse código ou WhatsApp.")))');
 
-  props.setProperty('SPREADSHEET_ID', ss.getId());
+  // Painel: todas as fórmulas
+  painelFormulas_(sheet_(APP.SHEETS.PAINEL));
+
+  // Reservas: filtro
+  const rs = sheet_(APP.SHEETS.RESERVAS);
+  if (!rs.getFilter()) rs.getRange(1, 1, rs.getMaxRows(), NCOLS).createFilter();
+
+  // Avisos antes de editar o que não deve ser mexido (não bloqueia ninguém)
+  protectRange_(rs.getRange(1, 1, rs.getMaxRows(), COL.TOTAL), 'Preenchido pelo site — evite editar');
+  protectSheet_(sheet_(APP.SHEETS.PAINEL), 'Painel — só fórmulas', []);
+  protectSheet_(bal, 'Balcão — edite só os campos amarelos e a caixa Entregue',
+    [bal.getRange('B3:C3'), bal.getRange('B4:C4'), bal.getRange('B5')]);
+
   installTrigger_(ss.getId());
+  SpreadsheetApp.flush();
 
-  Logger.log('Planilha criada ✅  %s', ss.getUrl());
+  const s = settings_();
+  Logger.log('Planilha ativada ✅  %s', ss.getUrl());
+  Logger.log('Preço R$ %s, máximo %s por reserva, reservas abertas: %s', s.price, s.max, s.open ? 'sim' : 'não');
+  Logger.log('Saldo: %s', JSON.stringify(remaining_(s.stock)));
   Logger.log('Agora publique uma nova versão em Implantar → Gerenciar implantações.');
 }
 
-/** Desliga o site da planilha atual (não apaga nada). Use só se for criar outra do zero. */
-function desligarPlanilha() {
-  PropertiesService.getScriptProperties().deleteProperty('SPREADSHEET_ID');
-  Logger.log('Planilha desligada. Rode criarPlanilhaNova() para criar outra.');
+function painelFormulas_(sh) {
+  const R = 'Reservas!';
+  const S = R + 'K2:K';
+  const ST = 'SUM(INDEX(CFG_ESTOQUE,0,2))';
+  // Cartões: valor na linha de baixo do rótulo
+  const cards = {
+    A5: '=COUNTIFS(' + R + 'A2:A,"<>",' + S + ',"<>Cancelado")',
+    C5: '=SUMIFS(' + R + 'I2:I,' + S + ',"<>Cancelado")',
+    C6: '="de "&' + ST + '&" camisas"',
+    E5: '=SUMIFS(' + R + 'I2:I,' + S + ',"Entregue")',
+    G5: '=C5-E5',
+    A9: '=MAX(0,' + ST + '-C5)',
+    C9: '=SUMIFS(' + R + 'J2:J,' + S + ',"Reservado")',
+    E9: '=SUMIFS(' + R + 'J2:J,' + S + ',"Entregue")',
+    G9: '=COUNTIF(' + S + ',"Cancelado")',
+  };
+  Object.keys(cards).forEach(a1 => sh.getRange(a1).setFormula(cards[a1]));
+  ['C9', 'E9'].forEach(a1 => sh.getRange(a1).setNumberFormat('"R$" #,##0.00'));
+  ['A5', 'C5', 'E5', 'G5', 'A9', 'G9'].forEach(a1 => sh.getRange(a1).setNumberFormat('0'));
+
+  // Tabela por tamanho (linhas 14 a 17) e total (linha 18)
+  APP.SIZES.forEach((sz, i) => {
+    const r = 14 + i;
+    const L = columnLetter_(COL[sz]);
+    sh.getRange(r, 1, 1, 8).setFormulas([[
+      '="' + sz + '"',
+      '=INDEX(CFG_ESTOQUE,' + (i + 1) + ',2)',
+      '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"<>Cancelado")',
+      '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"Entregue")',
+      '=C' + r + '-D' + r,
+      '=MAX(0,B' + r + '-C' + r + ')',
+      '=SPARKLINE(C' + r + ',{"charttype","bar";"max",MAX(1,B' + r + ');"color1","' + COLOR.green600 + '"})',
+      '=IFERROR(C' + r + '/B' + r + ',0)',
+    ]]);
+  });
+  const t = 14 + APP.SIZES.length;
+  const l = t - 1;
+  sh.getRange(t, 1, 1, 8).setFormulas([[
+    '="Total"', '=SUM(B14:B' + l + ')', '=SUM(C14:C' + l + ')', '=SUM(D14:D' + l + ')',
+    '=SUM(E14:E' + l + ')', '=SUM(F14:F' + l + ')',
+    '=SPARKLINE(C' + t + ',{"charttype","bar";"max",MAX(1,B' + t + ');"color1","' + COLOR.green800 + '"})',
+    '=IFERROR(C' + t + '/B' + t + ',0)',
+  ]]);
+  sh.getRange(14, 2, APP.SIZES.length + 1, 5).setNumberFormat('0');
+  sh.getRange(14, 8, APP.SIZES.length + 1, 1).setNumberFormat('0%');
+}
+
+function named_(ss, name, range) {
+  try { ss.removeNamedRange(name); } catch (e) { /* ainda não existia */ }
+  ss.setNamedRange(name, range);
+}
+
+function checkbox_(range, value) {
+  range.clearDataValidations();
+  range.insertCheckboxes();
+  range.setValue(value);
+}
+
+function protectRange_(range, description) {
+  const sh = range.getSheet();
+  const exists = sh.getProtections(SpreadsheetApp.ProtectionType.RANGE).some(p => p.getDescription() === description);
+  if (!exists) range.protect().setDescription(description).setWarningOnly(true);
+}
+
+function protectSheet_(sh, description, editable) {
+  sh.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(p => p.remove());
+  const p = sh.protect().setDescription(description).setWarningOnly(true);
+  if (editable.length) p.setUnprotectedRanges(editable);
 }
 
 /** Mostra o link da planilha que o site está usando e o saldo atual. */
@@ -401,334 +485,6 @@ function installTrigger_(id) {
     .filter(t => t.getHandlerFunction() === 'aoEditar')
     .forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('aoEditar').forSpreadsheet(id).onEdit().create();
-}
-
-/* --- estilos comuns --- */
-
-function trim_(sh, rows, cols) {
-  if (sh.getMaxColumns() > cols) sh.deleteColumns(cols + 1, sh.getMaxColumns() - cols);
-  if (sh.getMaxRows() > rows) sh.deleteRows(rows + 1, sh.getMaxRows() - rows);
-  if (sh.getMaxRows() < rows) sh.insertRowsAfter(sh.getMaxRows(), rows - sh.getMaxRows());
-}
-
-// Mescla e escreve só na primeira célula (o jeito seguro com células mescladas)
-function merged_(range, value) {
-  range.merge();
-  const cell = range.getCell(1, 1);
-  if (typeof value === 'string' && value.charAt(0) === '=') cell.setFormula(value);
-  else if (value !== undefined) cell.setValue(value);
-  return range;
-}
-
-function titleBand_(sh, cols, title, subtitle) {
-  merged_(sh.getRange(1, 1, 1, cols), title)
-    .setBackground(COLOR.green800).setFontColor(COLOR.yellow).setFontFamily('Montserrat')
-    .setFontSize(18).setFontWeight('bold').setVerticalAlignment('middle');
-  merged_(sh.getRange(2, 1, 1, cols), subtitle)
-    .setBackground(COLOR.green800).setFontColor('#FFFFFF').setFontSize(10).setVerticalAlignment('top');
-  sh.setRowHeight(1, 52).setRowHeight(2, 28);
-}
-
-function sectionTitle_(range, text) {
-  merged_(range, text).setFontFamily('Montserrat').setFontSize(12).setFontWeight('bold')
-    .setFontColor(COLOR.green800).setVerticalAlignment('bottom');
-}
-
-function headerRow_(range) {
-  range.setBackground(COLOR.green800).setFontColor('#FFFFFF').setFontWeight('bold')
-    .setVerticalAlignment('middle').setHorizontalAlignment('center').setWrap(true);
-}
-
-function box_(range) {
-  return range.setBorder(true, true, true, true, false, false, COLOR.line, SpreadsheetApp.BorderStyle.SOLID);
-}
-
-/* --- Configurações --- */
-
-function buildConfig_(ss, sh) {
-  trim_(sh, 30, 3);
-  sh.setTabColor(COLOR.blue).setHiddenGridlines(true);
-  sh.setColumnWidth(1, 260).setColumnWidth(2, 320).setColumnWidth(3, 380);
-  sh.getRange('A1:C30').setBackground(COLOR.paper).setFontFamily('Roboto').setFontSize(11).setVerticalAlignment('middle');
-  titleBand_(sh, 3, 'Configurações', 'Mude os valores nos campos amarelos. O site usa os valores novos na próxima reserva.');
-
-  sectionTitle_(sh.getRange('A4:C4'), 'Reservas');
-  sh.getRange('A5:C7').setValues([
-    ['Preço por camisa', APP.DEFAULTS.price, 'Se mudar o preço, avise quem cuida do site para atualizar o texto.'],
-    ['Máximo de camisas por reserva', APP.DEFAULTS.max, ''],
-    ['Reservas abertas no site', '', 'Desmarque para encerrar as reservas. O site trava na hora.'],
-  ]);
-  sh.getRange('B5').setNumberFormat('"R$" #,##0.00').setHorizontalAlignment('left');
-  sh.getRange('B6').setNumberFormat('0').setHorizontalAlignment('left');
-  sh.getRange('B7').insertCheckboxes().setValue(true);
-  ss.setNamedRange('CFG_PRECO', sh.getRange('B5'));
-  ss.setNamedRange('CFG_MAX', sh.getRange('B6'));
-  ss.setNamedRange('CFG_ABERTAS', sh.getRange('B7'));
-
-  sectionTitle_(sh.getRange('A9:C9'), 'Estoque por tamanho');
-  headerRow_(sh.getRange('A10:B10').setValues([['Tamanho', 'Camisas']]));
-  const n = APP.SIZES.length;
-  const st = sh.getRange(11, 1, n, 2).setValues(APP.SIZES.map(sz => [sz, APP.DEFAULTS.stock[sz]]));
-  st.setHorizontalAlignment('center');
-  sh.getRange(11, 1, n, 1).setFontWeight('bold').setBackground('#FFFFFF');
-  sh.getRange(11, 2, n, 1).setNumberFormat('0');
-  ss.setNamedRange('CFG_ESTOQUE', st);
-  const totalRow = 11 + n;
-  sh.getRange(totalRow, 1, 1, 2).setValues([['Total', '=SUM(B11:B' + (totalRow - 1) + ')']])
-    .setFontWeight('bold').setHorizontalAlignment('center').setBackground(COLOR.green100);
-  sh.getRange('C11').setValue('Para mudar o estoque, edite estes números. O saldo do site se ajusta sozinho.');
-
-  const info = totalRow + 2;
-  sectionTitle_(sh.getRange(info, 1, 1, 3), 'Informações para consulta');
-  sh.getRange(info + 1, 1, 4, 2).setValues([
-    ['Local de retirada', APP.DEFAULTS.local],
-    ['Endereço', APP.DEFAULTS.endereco],
-    ['Horário de retirada', APP.DEFAULTS.horario],
-    ['Evento', APP.DEFAULTS.evento],
-  ]);
-  sh.getRange(info + 1, 1, 4, 2).setBackground('#FFFFFF');
-
-  // Campos editáveis em amarelo
-  [sh.getRange('B5:B7'), sh.getRange(11, 2, n, 1)].forEach(r =>
-    r.setBackground(COLOR.yellow50).setFontWeight('bold')
-      .setBorder(true, true, true, true, true, true, COLOR.line, SpreadsheetApp.BorderStyle.SOLID));
-  sh.getRange('A5:A7').setFontWeight('bold');
-  sh.getRange(info + 1, 1, 4, 1).setFontWeight('bold');
-  [sh.getRange('C5:C7'), sh.getRange('C11')].forEach(r =>
-    r.setFontColor(COLOR.muted).setFontStyle('italic').setWrap(true).setFontSize(10));
-  sh.setRowHeights(4, info + 1, 30);
-  sh.setRowHeights(4, 1, 34); sh.setRowHeight(9, 34); sh.setRowHeight(info, 34);
-}
-
-/* --- Reservas --- */
-
-function buildReservas_(sh) {
-  trim_(sh, 2000, NCOLS);
-  sh.setTabColor(COLOR.green600);
-  const rows = sh.getMaxRows();
-  const all = sh.getRange(1, 1, rows, NCOLS);
-  all.setFontFamily('Roboto').setFontSize(10).setVerticalAlignment('middle');
-
-  sh.getRange(1, 1, 1, NCOLS).setValues([HEADERS]);
-  sh.setFrozenRows(1);
-  sh.setFrozenColumns(1);
-  sh.setRowHeight(1, 36);
-  WIDTHS.forEach((w, i) => sh.setColumnWidth(i + 1, w));
-
-  const body = c => sh.getRange(2, c, rows - 1, 1);
-  body(COL.CODIGO).setFontWeight('bold').setFontFamily('Roboto Mono');
-  body(COL.DATA).setNumberFormat('dd/MM/yyyy HH:mm');
-  body(COL.RETIRADA).setNumberFormat('dd/MM/yyyy HH:mm');
-  body(COL.WHATS).setNumberFormat('@');
-  body(COL.TOTAL).setNumberFormat('"R$" #,##0.00');
-  sh.getRange(2, COL.P, rows - 1, 5).setHorizontalAlignment('center').setNumberFormat('0');
-  body(COL.STATUS).setHorizontalAlignment('center').setDataValidation(
-    SpreadsheetApp.newDataValidation()
-      .requireValueInList([APP.STATUS.RESERVADO, APP.STATUS.ENTREGUE, APP.STATUS.CANCELADO], true)
-      .setAllowInvalid(false).build());
-  body(COL.OBS).setWrap(true);
-
-  all.applyRowBanding(SpreadsheetApp.BandingTheme.GREEN, true, false)
-    .setHeaderRowColor(COLOR.green800).setFirstRowColor('#FFFFFF').setSecondRowColor(COLOR.paper);
-  headerRow_(sh.getRange(1, 1, 1, NCOLS));
-  sh.getRange(1, COL.P, 1, 4).setBackground(COLOR.green600);
-
-  const data = sh.getRange(2, 1, rows - 1, NCOLS);
-  const statusCol = body(COL.STATUS);
-  sh.setConditionalFormatRules([
-    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=$K2="' + APP.STATUS.CANCELADO + '"')
-      .setFontColor(COLOR.grey).setStrikethrough(true).setRanges([data]).build(),
-    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(APP.STATUS.ENTREGUE)
-      .setBackground(COLOR.green100).setFontColor(COLOR.green800).setBold(true).setRanges([statusCol]).build(),
-    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(APP.STATUS.RESERVADO)
-      .setBackground(COLOR.yellow50).setFontColor('#5C4A00').setBold(true).setRanges([statusCol]).build(),
-  ]);
-
-  all.createFilter();
-
-  // Colunas preenchidas pelo site: aviso antes de editar (não bloqueia)
-  sh.getRange(1, 1, rows, COL.TOTAL).protect()
-    .setDescription('Preenchido pelo site — evite editar').setWarningOnly(true);
-}
-
-/* --- Painel --- */
-
-function buildPainel_(sh) {
-  trim_(sh, 40, 8);
-  sh.setTabColor(COLOR.yellow).setHiddenGridlines(true);
-  sh.setColumnWidths(1, 8, 128);
-  sh.getRange('A1:H40').setBackground(COLOR.paper).setFontFamily('Roboto').setVerticalAlignment('middle');
-  titleBand_(sh, 8, 'Bloco do 22 — Painel de reservas',
-    'Atualiza sozinho a cada reserva. Evento: ' + APP.DEFAULTS.evento + '.');
-
-  const R = 'Reservas!';
-  const S = R + 'K2:K';
-  const stockTotal = 'SUM(INDEX(CFG_ESTOQUE,0,2))';
-  const cards = [
-    // [linha, coluna, rótulo, fórmula, formato, nota]
-    [4, 1, 'Reservas ativas', '=COUNTIFS(' + R + 'A2:A,"<>",' + S + ',"<>Cancelado")', '0', 'pedidos não cancelados'],
-    [4, 3, 'Camisas reservadas', '=SUMIFS(' + R + 'I2:I,' + S + ',"<>Cancelado")', '0', '="de "&' + stockTotal + '&" camisas"'],
-    [4, 5, 'Entregues', '=SUMIFS(' + R + 'I2:I,' + S + ',"Entregue")', '0', 'camisas já retiradas'],
-    [4, 7, 'A entregar', '=C5-E5', '0', 'reservadas e ainda não retiradas'],
-    [8, 1, 'Disponíveis no site', '=MAX(0,' + stockTotal + '-C5)', '0', 'camisas que ainda dá para reservar'],
-    [8, 3, 'Valor a receber', '=SUMIFS(' + R + 'J2:J,' + S + ',"Reservado")', '"R$" #,##0.00', 'das reservas pendentes'],
-    [8, 5, 'Valor recebido', '=SUMIFS(' + R + 'J2:J,' + S + ',"Entregue")', '"R$" #,##0.00', 'das camisas entregues'],
-    [8, 7, 'Canceladas', '=COUNTIF(' + S + ',"Cancelado")', '0', 'reservas canceladas'],
-  ];
-  cards.forEach(([row, col, label, formula, fmt, note]) => {
-    box_(sh.getRange(row, col, 3, 2).setBackground('#FFFFFF'));
-    merged_(sh.getRange(row, col, 1, 2), label).setFontSize(10).setFontColor(COLOR.muted).setFontWeight('bold');
-    merged_(sh.getRange(row + 1, col, 1, 2), formula).setNumberFormat(fmt)
-      .setFontFamily('Montserrat').setFontSize(24).setFontWeight('bold').setFontColor(COLOR.green800).setHorizontalAlignment('left');
-    merged_(sh.getRange(row + 2, col, 1, 2), note).setFontSize(9).setFontColor(COLOR.muted);
-  });
-  sh.setRowHeight(3, 16);
-  [4, 8].forEach(r => { sh.setRowHeight(r, 26); sh.setRowHeight(r + 1, 46); sh.setRowHeight(r + 2, 22); });
-  sh.setRowHeight(7, 14);
-  sh.getRange('G5').setFontColor(COLOR.blue);   // A entregar
-  sh.getRange('A9').setFontColor(COLOR.green600); // Disponíveis
-
-  // Tabela por tamanho
-  sectionTitle_(sh.getRange('A12:H12'), 'Estoque por tamanho');
-  sh.setRowHeight(11, 14).setRowHeight(12, 34);
-  headerRow_(sh.getRange(13, 1, 1, 8).setValues([['Tamanho', 'Estoque', 'Reservadas', 'Entregues', 'A entregar', 'Disponíveis', 'Ocupação', '%']]));
-  sh.setRowHeight(13, 30);
-  APP.SIZES.forEach((sz, i) => {
-    const r = 14 + i;
-    const L = columnLetter_(COL[sz]);
-    sh.getRange(r, 1, 1, 8).setFormulas([[
-      '="' + sz + '"',
-      '=INDEX(CFG_ESTOQUE,' + (i + 1) + ',2)',
-      '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"<>Cancelado")',
-      '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"Entregue")',
-      '=C' + r + '-D' + r,
-      '=MAX(0,B' + r + '-C' + r + ')',
-      '=SPARKLINE(C' + r + ',{"charttype","bar";"max",MAX(1,B' + r + ');"color1","' + COLOR.green600 + '"})',
-      '=IFERROR(C' + r + '/B' + r + ',0)',
-    ]]);
-  });
-  const lastSize = 13 + APP.SIZES.length;
-  const tot = lastSize + 1;
-  sh.getRange(tot, 1, 1, 8).setFormulas([[
-    '="Total"', '=SUM(B14:B' + lastSize + ')', '=SUM(C14:C' + lastSize + ')', '=SUM(D14:D' + lastSize + ')',
-    '=SUM(E14:E' + lastSize + ')', '=SUM(F14:F' + lastSize + ')',
-    '=SPARKLINE(C' + tot + ',{"charttype","bar";"max",MAX(1,B' + tot + ');"color1","' + COLOR.green800 + '"})',
-    '=IFERROR(C' + tot + '/B' + tot + ',0)',
-  ]]);
-  const rowsN = APP.SIZES.length + 1;
-  sh.getRange(14, 1, rowsN, 8).setBackground('#FFFFFF').setHorizontalAlignment('center').setFontSize(11)
-    .setBorder(true, true, true, true, false, true, COLOR.line, SpreadsheetApp.BorderStyle.SOLID);
-  sh.getRange(14, 1, rowsN, 1).setFontWeight('bold').setFontFamily('Montserrat');
-  sh.getRange(14, 2, rowsN, 5).setNumberFormat('0');
-  sh.getRange(14, 6, rowsN, 1).setFontWeight('bold').setFontColor(COLOR.green800);
-  sh.getRange(14, 8, rowsN, 1).setNumberFormat('0%');
-  sh.getRange(tot, 1, 1, 8).setBackground(COLOR.green100).setFontWeight('bold');
-  sh.setRowHeights(14, rowsN, 30);
-
-  // Destaque em azul quando restarem 20 ou menos camisas de um tamanho
-  sh.setConditionalFormatRules([
-    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=AND($B14>0,$F14<=20)')
-      .setBackground(COLOR.blue50).setFontColor(COLOR.blue).setRanges([sh.getRange(14, 6, APP.SIZES.length, 1)]).build(),
-  ]);
-
-  merged_(sh.getRange(tot + 2, 1, 1, 8),
-    'Para dar baixa numa retirada, use a aba Balcão. Para cancelar uma reserva, mude o Status na aba Reservas.')
-    .setFontColor(COLOR.muted).setFontSize(10);
-
-  sh.protect().setDescription('Painel — só fórmulas').setWarningOnly(true);
-}
-
-/* --- Balcão --- */
-
-function buildBalcao_(sh) {
-  trim_(sh, 60, NCOLS);
-  sh.setTabColor(COLOR.green800).setHiddenGridlines(true);
-  sh.getRange(1, 1, 60, NCOLS).setFontFamily('Roboto').setFontSize(10).setVerticalAlignment('middle');
-  WIDTHS.forEach((w, i) => sh.setColumnWidth(i + 1, i === 0 ? 160 : w));
-  titleBand_(sh, NCOLS, 'Balcão de retirada',
-    'Digite o código ou o WhatsApp, confira a reserva, receba o pagamento e marque Entregue.');
-
-  sh.getRange('A3:A5').setValues([['Código ou WhatsApp'], ['Atendente'], ['Entregue']])
-    .setFontWeight('bold').setFontSize(11).setHorizontalAlignment('right');
-  sh.getRange('B3:C3').merge().setFontSize(14).setFontWeight('bold').setFontFamily('Roboto Mono');
-  sh.getRange('B4:C4').merge().setFontSize(11);
-  [sh.getRange('B3:C3'), sh.getRange('B4:C4')].forEach(r =>
-    r.setBackground(COLOR.yellow50).setBorder(true, true, true, true, false, false, COLOR.green600, SpreadsheetApp.BorderStyle.SOLID_MEDIUM));
-  sh.getRange('B5').insertCheckboxes().setValue(false);
-  sh.getRange('D3').setValue('Digite e aperte Enter').setFontColor(COLOR.muted).setFontStyle('italic');
-  sh.getRange('D5').setValue('Marque depois de receber o pagamento e entregar todas as camisas')
-    .setFontColor(COLOR.muted).setFontStyle('italic');
-  sh.getRange(6, 2, 1, NCOLS - 1).merge().setFontWeight('bold').setFontSize(11).setWrap(true);
-  sh.setRowHeights(3, 3, 34);
-  sh.setRowHeight(6, 34);
-
-  headerRow_(sh.getRange(8, 1, 1, NCOLS).setValues([HEADERS]));
-  sh.setRowHeight(8, 32);
-  sh.getRange('A9').setFormula(
-    '=ARRAYFORMULA(IF($B$3="","",IFERROR(FILTER(Reservas!A2:N,' +
-      '(Reservas!A2:A=UPPER(TRIM($B$3)))+' +
-      'IF(LEN(REGEXREPLACE($B$3&"","\\D",""))>=8,RIGHT(REGEXREPLACE(Reservas!D2:D&"","\\D",""),LEN(REGEXREPLACE($B$3&"","\\D","")))=REGEXREPLACE($B$3&"","\\D",""),FALSE)' +
-      '),"Nenhuma reserva encontrada para esse código ou WhatsApp.")))');
-  box_(sh.getRange(9, 1, 20, NCOLS).setBackground('#FFFFFF'));
-  sh.getRange(9, 1, 20, 1).setFontWeight('bold').setFontFamily('Roboto Mono');
-  sh.getRange(9, COL.DATA, 20, 1).setNumberFormat('dd/MM/yyyy HH:mm');
-  sh.getRange(9, COL.RETIRADA, 20, 1).setNumberFormat('dd/MM/yyyy HH:mm');
-  sh.getRange(9, COL.TOTAL, 20, 1).setNumberFormat('"R$" #,##0.00');
-  sh.getRange(9, COL.P, 20, 5).setHorizontalAlignment('center');
-  const st = sh.getRange(9, COL.STATUS, 20, 1).setHorizontalAlignment('center').setFontWeight('bold');
-  sh.setConditionalFormatRules([
-    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(APP.STATUS.ENTREGUE)
-      .setBackground(COLOR.green100).setFontColor(COLOR.green800).setRanges([st]).build(),
-    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(APP.STATUS.RESERVADO)
-      .setBackground(COLOR.yellow50).setFontColor('#5C4A00').setRanges([st]).build(),
-  ]);
-
-  sh.protect().setDescription('Balcão — edite só os campos amarelos e a caixa Entregue').setWarningOnly(true)
-    .setUnprotectedRanges([sh.getRange('B3:C3'), sh.getRange('B4:C4'), sh.getRange('B5')]);
-}
-
-/* --- Como usar --- */
-
-function buildGuia_(sh) {
-  trim_(sh, 40, 2);
-  sh.setTabColor(COLOR.muted).setHiddenGridlines(true);
-  sh.setColumnWidth(1, 56).setColumnWidth(2, 760);
-  sh.getRange('A1:B40').setBackground(COLOR.paper).setFontFamily('Roboto').setFontSize(11)
-    .setVerticalAlignment('middle').setWrap(true);
-  titleBand_(sh, 2, 'Como usar', 'Guia rápido para a equipe do comitê.');
-
-  const blocks = [
-    ['Na retirada (aba Balcão)', [
-      'Peça o código da reserva (começa com B22-) ou o WhatsApp da pessoa e digite no campo amarelo.',
-      'Confira nome, tamanhos e total. Se o Status for Entregue, a camisa já foi retirada: não entregue de novo.',
-      'Receba o pagamento e entregue TODAS as camisas do pedido.',
-      'Escreva seu nome em Atendente e marque a caixa Entregue. A planilha registra a data e a hora.',
-    ]],
-    ['Se alguém desistir', [
-      'Na aba Reservas, mude o Status da reserva para Cancelado. As camisas voltam para o estoque do site.',
-    ]],
-    ['Estoque, preço e encerramento (aba Configurações)', [
-      'Para mudar o estoque de um tamanho, edite o número na tabela Estoque por tamanho.',
-      'Para encerrar as reservas, desmarque Reservas abertas no site. Para reabrir, marque de novo.',
-    ]],
-    ['Acompanhamento (aba Painel)', [
-      'Mostra reservas, camisas entregues, valores e quanto resta de cada tamanho. Tudo se atualiza sozinho.',
-    ]],
-  ];
-  let r = 4;
-  blocks.forEach(([title, steps]) => {
-    sectionTitle_(sh.getRange(r, 1, 1, 2), title);
-    sh.setRowHeight(r, 34);
-    r++;
-    steps.forEach((t, i) => {
-      sh.getRange(r, 1).setValue(i + 1).setHorizontalAlignment('center').setFontWeight('bold')
-        .setBackground(COLOR.yellow).setFontColor(COLOR.green900);
-      sh.getRange(r, 2).setValue(t).setBackground('#FFFFFF');
-      sh.setRowHeight(r, 32);
-      r++;
-    });
-    r++;
-  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -748,8 +504,7 @@ function testarReserva() {
 let ss__ = null;
 function ss_() {
   if (ss__) return ss__;
-  const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
-  if (!id) throw new Error('Planilha ainda não criada. Rode criarPlanilhaNova() no editor do Apps Script.');
+  const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || APP.SPREADSHEET_ID;
   ss__ = SpreadsheetApp.openById(id);
   return ss__;
 }
@@ -769,6 +524,11 @@ function columnLetter_(n) {
 // Data/hora no horário de Recife, como texto que o Sheets converte em data
 function horaRecife_(d) {
   return Utilities.formatDate(d, APP.TZ, 'yyyy-MM-dd HH:mm:ss');
+}
+
+// Caixa marcada (true) ou "Sim" escrito/selecionado
+function isOn_(v) {
+  return v === true || isValue_(v, 'Sim') || isValue_(v, 'TRUE');
 }
 
 function isValue_(x, wanted) {

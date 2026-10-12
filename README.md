@@ -17,12 +17,15 @@ apps-script/       → backend no Google Apps Script
 
 ## 1. Backend (Google Sheets + Apps Script)
 
+Planilha: **Bloco do 22 — Reservas de camisas** (ID em `APP.SPREADSHEET_ID`; cópia em `planilha/bloco22-reservas.xlsx`,
+gerada por `planilha/gerar_planilha.py`).
+
 1. Abra o projeto do Apps Script, apague o conteúdo e cole `apps-script/Code.gs`. Salve.
-2. Rode **`criarPlanilhaNova`** (autorize). Ela cria a planilha "Bloco do 22 — Reservas de camisas",
-   liga o site a ela e instala a automação. O link aparece no registro de execução.
+2. Rode **`ativar`** (autorize). Ela cria as caixinhas, reescreve as fórmulas, adiciona os avisos de proteção
+   e instala a automação do Balcão e do Status.
 3. **Implantar → Gerenciar implantações → ✏️ → Nova versão → Implantar** (a URL do site não muda).
 
-Funções úteis no editor: `verPlanilha` (link + saldo), `testarReserva`, `desligarPlanilha`.
+Funções úteis no editor: `verPlanilha` (link + saldo) e `testarReserva`.
 
 ### Abas da planilha
 | Aba | Para quê |
