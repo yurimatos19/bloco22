@@ -33,7 +33,7 @@ Funções úteis no editor: `verPlanilha` (link + saldo) e `testarReserva`.
 | **Painel** | Reservas, camisas reservadas/entregues, valores e estoque por tamanho (só fórmulas) |
 | **Balcão** | Atendente digita código ou WhatsApp, confere e marca **Entregue** (registra atendente e hora) |
 | **Reservas** | Uma linha por pedido: P, M, G, GG, total e **Status** (Reservado / Entregue / Cancelado) |
-| **Configurações** | Preço, máximo por reserva, **Reservas abertas** (caixa) e **estoque por tamanho** |
+| **Configurações** | Preço, camisas por pessoa, **Reservas abertas** (caixa) e **estoque por tamanho** |
 | **Como usar** | Guia da equipe |
 
 ## 2. Site
@@ -62,7 +62,7 @@ e o servidor recusa reservas acima do saldo. Desmarcar "Reservas abertas" trava 
 
 ## Regras implementadas
 
-- Carrinho tradicional: escolhe o tamanho → "Adicionar ao carrinho", uma camisa por linha (com lixeira), até 3 por reserva, tamanhos P, M, G e GG combináveis.
+- 1 camisa por pessoa (por WhatsApp, somando reservas não canceladas), tamanhos P, M, G e GG.
 - Nome completo e WhatsApp (celular com DDD) obrigatórios.
 - Caixa de confirmação obrigatória com o texto oficial — sem ela o botão fica desabilitado e o servidor recusa.
 - Preço e total recalculados **no servidor** (o site não define o valor gravado).

@@ -93,7 +93,7 @@ title(ws, 3, 'Configurações', 'Mude os valores nos campos amarelos. O site usa
 section(ws, 'A4:C4', 'Reservas')
 rows = [
     ('Preço por camisa', 22, 'Se mudar o preço, avise quem cuida do site para atualizar o texto.'),
-    ('Máximo de camisas por reserva', 3, ''),
+    ('Camisas por pessoa (por WhatsApp)', 1, 'Soma todas as reservas não canceladas do mesmo WhatsApp.'),
     ('Reservas abertas no site', 'Sim', 'Desmarque (ou mude para Não) para encerrar as reservas. O site trava na hora.'),
 ]
 for i, (a, b, c) in enumerate(rows, 5):

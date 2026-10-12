@@ -2,7 +2,7 @@
   'use strict';
 
   var PRICE = 22.00;
-  var MAX = 3;
+  var MAX = 1; // camisas por pessoa (o servidor manda o valor da aba Configurações)
   var SIZES = ['P', 'M', 'G', 'GG'];
   var LOW_STOCK = 20; // abaixo disso mostra "Últimas N"
   var ADDRESS = 'Avenida Herculano Bandeira, 766, Pina, Recife - PE';
@@ -114,6 +114,7 @@
     fetch(API_URL).then(function (r) { return r.json(); }).then(function (d) {
       if (!d) return;
       closed = d.open === false;
+      if (d.max > 0) MAX = d.max;
       if (d.stock) stock = d.stock;
       render();
     }).catch(function () { /* sem saldo: o servidor confere na hora de reservar */ });
@@ -146,15 +147,15 @@
     addBtn.disabled = full || blocked || !selected;
     $('add-label').textContent = closed ? 'Reservas encerradas'
       : soldAll ? 'Camisas esgotadas'
-      : full ? 'Limite de 3 camisas'
+      : full ? (MAX === 1 ? 'Camisa escolhida' : 'Limite de ' + MAX + ' camisas')
       : selected ? 'Adicionar tamanho ' + selected
       : 'Escolha um tamanho';
     var lim = $('limit-label');
     lim.textContent = closed ? 'As reservas pelo site foram encerradas.'
       : soldAll ? 'Todas as camisas já foram reservadas.'
-      : full ? 'Você chegou ao limite de 3 camisas'
+      : full ? (MAX === 1 ? 'É 1 camisa por pessoa. Para trocar o tamanho, remova a do carrinho.' : 'Você chegou ao limite de ' + MAX + ' camisas')
       : t ? 'Dá para adicionar mais ' + (MAX - t)
-      : 'Até 3 por reserva';
+      : MAX === 1 ? '1 camisa por pessoa' : 'Até ' + MAX + ' por pessoa';
     lim.classList.toggle('full', full || blocked);
     submitEl.disabled = blocked;
     dockBtn.disabled = blocked;

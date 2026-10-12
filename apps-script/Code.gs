@@ -10,6 +10,7 @@
  *
  * O site envia a reserva → o script valida, confere o estoque e grava em Reservas.
  * Cancelar uma reserva (Status = Cancelado) devolve as camisas ao estoque.
+ * Limite por pessoa: cada WhatsApp pode ter no total CFG_MAX camisas em reservas não canceladas.
  *
  * INSTALAÇÃO (uma vez): cole este código, rode `ativar` e depois publique uma nova versão
  * em Implantar → Gerenciar implantações (a URL do site não muda).
@@ -25,7 +26,7 @@ const APP = {
   // Valores iniciais da aba Configurações (depois a equipe edita lá mesmo)
   DEFAULTS: {
     price: 22,
-    max: 3,
+    max: 1, // camisas por pessoa (por WhatsApp), somando todas as reservas não canceladas
     stock: { P: 150, M: 250, G: 400, GG: 200 },
     local: 'Comitê da Direita Pernambucana',
     endereco: 'Av. Herculano Bandeira, 766 — Pina, Recife/PE',
@@ -86,6 +87,18 @@ function doPost(e) {
     const lock = LockService.getScriptLock();
     lock.waitLock(20000);
     try {
+      // Limite por pessoa: soma o que esse WhatsApp já tem em reservas não canceladas.
+      const already = shirtsByPhone_(v.phone);
+      if (already + v.qty > s.max) {
+        return json_({
+          ok: false,
+          error: already > 0
+            ? 'Esse WhatsApp já tem uma reserva. É ' + (s.max === 1 ? '1 camisa' : 'no máximo ' + s.max + ' camisas') +
+              ' por pessoa. Se perdeu o código, informe seu WhatsApp no Comitê na hora da retirada.'
+            : 'O limite é de ' + s.max + (s.max === 1 ? ' camisa' : ' camisas') + ' por pessoa.',
+        });
+      }
+
       // Confere o estoque dentro da trava, para reservas simultâneas não passarem do limite.
       const left = remaining_(s.stock);
       for (const size of Object.keys(v.items)) {
@@ -147,6 +160,19 @@ function saveReservation_(v, price) {
     total: total,
     createdAt: now.toISOString(),
   };
+}
+
+// Camisas que um WhatsApp já tem em reservas não canceladas.
+function shirtsByPhone_(phone) {
+  const sh = sheet_(APP.SHEETS.RESERVAS);
+  const last = sh.getLastRow();
+  if (last < 2) return 0;
+  let total = 0;
+  sh.getRange(2, 1, last - 1, COL.STATUS).getValues().forEach(r => {
+    if (!r[COL.CODIGO - 1] || isValue_(r[COL.STATUS - 1], APP.STATUS.CANCELADO)) return;
+    if (String(r[COL.WHATS - 1]).replace(/\D/g, '').slice(-11) === phone) total += Number(r[COL.QTD - 1]) || 0;
+  });
+  return total;
 }
 
 // Saldo por tamanho = estoque − camisas em reservas que não foram canceladas.
@@ -242,7 +268,7 @@ function validate_(d, maxPerOrder) {
     }
   }
   if (qty < 1) return { error: 'Escolha pelo menos 1 camisa.' };
-  if (qty > maxPerOrder) return { error: 'O limite é de ' + maxPerOrder + ' camisas por reserva.' };
+  if (qty > maxPerOrder) return { error: 'O limite é de ' + maxPerOrder + (maxPerOrder === 1 ? ' camisa' : ' camisas') + ' por pessoa.' };
 
   if (d.consent !== true) {
     return { error: 'Você precisa confirmar que está ciente das condições de pagamento e retirada.' };
@@ -368,6 +394,12 @@ function ativar() {
   named_(ss, 'CFG_ABERTAS', cfg.getRange('B7'));
   named_(ss, 'CFG_ESTOQUE', cfg.getRange('A11:B14'));
   checkbox_(cfg.getRange('B7'), isOn_(cfg.getRange('B7').getValue()));
+  const maxLabel = 'Camisas por pessoa (por WhatsApp)';
+  if (cfg.getRange('A6').getValue() !== maxLabel) {
+    cfg.getRange('A6').setValue(maxLabel);
+    cfg.getRange('B6').setValue(APP.DEFAULTS.max);
+    cfg.getRange('C6').setValue('Soma todas as reservas não canceladas do mesmo WhatsApp.');
+  }
   cfg.getRange('B15').setFormula('=SUM(B11:B14)');
 
   // Balcão: caixa "Entregue" e busca
