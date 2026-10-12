@@ -220,7 +220,7 @@
     };
 
     setLoading(true);
-    send(payload)
+    sendWithRetry(payload)
       .then(function (res) {
         if (res && res.stock) { stock = res.stock; render(); }
         if (!res || !res.ok) throw new Error((res && res.error) || 'Não foi possível concluir sua reserva.');
@@ -262,6 +262,22 @@
       body: JSON.stringify(payload),
       redirect: 'follow',
     }).then(function (r) { return r.json(); });
+  }
+
+  // Se o servidor responder "ocupado" (nada foi gravado), espera e tenta de novo, até 2 vezes.
+  // Em falha de rede não reenvia: a reserva pode ter sido gravada.
+  function sendWithRetry(payload) {
+    var waits = [2500, 5000];
+    function attempt(n) {
+      return send(payload).then(function (res) {
+        if (res && res.busy && n < waits.length) {
+          submitEl.querySelector('.btn__text').textContent = 'Muita gente reservando agora, tentando de novo…';
+          return new Promise(function (r) { setTimeout(r, waits[n]); }).then(function () { return attempt(n + 1); });
+        }
+        return res;
+      });
+    }
+    return attempt(0);
   }
 
   function setLoading(on) {

@@ -89,8 +89,12 @@ function doPost(e) {
       return json_({ ok: false, error: 'Muitas reservas para este WhatsApp em pouco tempo. Tente novamente mais tarde.' });
     }
 
+    // Uma reserva por vez (evita estoque a mais e código repetido). Se a fila estiver longa,
+    // responde "ocupado" sem gravar nada, e o site tenta de novo sozinho.
     const lock = LockService.getScriptLock();
-    lock.waitLock(20000);
+    if (!lock.tryLock(28000)) {
+      return json_({ ok: false, busy: true, error: 'Muita gente reservando agora. Tente de novo em alguns segundos.' });
+    }
     try {
       // Limite por pessoa: soma o que esse WhatsApp já tem em reservas não canceladas.
       const already = shirtsByPhone_(v.phone);
