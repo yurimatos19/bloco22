@@ -13,6 +13,7 @@
 
   var cart = []; // uma entrada por camisa, ex.: ['M', 'M', 'GG']
   var stock = null; // saldo por tamanho vindo da planilha, ex.: { P: 150, M: 250, ... }
+  var closed = false; // reservas encerradas pelo servidor (RESERVATIONS_OPEN = false)
   var selected = null;
 
   var $ = function (id) { return document.getElementById(id); };
@@ -111,13 +112,18 @@
   function loadStock() {
     if (DEMO) return;
     fetch(API_URL).then(function (r) { return r.json(); }).then(function (d) {
-      if (d && d.stock) { stock = d.stock; render(); }
+      if (!d) return;
+      closed = d.open === false;
+      if (d.stock) stock = d.stock;
+      render();
     }).catch(function () { /* sem saldo: o servidor confere na hora de reservar */ });
   }
 
   function render() {
     var t = total();
     var full = t >= MAX;
+    var soldAll = !!stock && SIZES.every(function (s) { return stock[s] === 0; });
+    var blocked = closed || soldAll;
 
     // disponibilidade por tamanho
     sizesEl.querySelectorAll('.size').forEach(function (label) {
@@ -136,16 +142,22 @@
       if (input.disabled && selected === s) { selected = null; input.checked = false; }
     });
 
-    picker.disabled = full;
-    addBtn.disabled = full || !selected;
-    $('add-label').textContent = full ? 'Limite de 3 camisas'
+    picker.disabled = full || blocked;
+    addBtn.disabled = full || blocked || !selected;
+    $('add-label').textContent = closed ? 'Reservas encerradas'
+      : soldAll ? 'Camisas esgotadas'
+      : full ? 'Limite de 3 camisas'
       : selected ? 'Adicionar tamanho ' + selected
       : 'Escolha um tamanho';
     var lim = $('limit-label');
-    lim.textContent = full ? 'Você chegou ao limite de 3 camisas'
+    lim.textContent = closed ? 'As reservas pelo site foram encerradas.'
+      : soldAll ? 'Todas as camisas já foram reservadas.'
+      : full ? 'Você chegou ao limite de 3 camisas'
       : t ? 'Dá para adicionar mais ' + (MAX - t)
       : 'Até 3 por reserva';
-    lim.classList.toggle('full', full);
+    lim.classList.toggle('full', full || blocked);
+    submitEl.disabled = blocked;
+    dockBtn.disabled = blocked;
 
     // linhas do carrinho (uma por camisa); só a recém-adicionada anima
     var grew = t > render.prev;
@@ -164,6 +176,9 @@
       cartEl.appendChild(li);
     });
     $('cart-empty').hidden = t > 0;
+    $('cart-empty').textContent = closed ? 'As reservas pelo site foram encerradas.'
+      : soldAll ? 'Todas as camisas já foram reservadas.'
+      : 'Nenhuma camisa ainda. Escolha um tamanho acima e toque em Adicionar.';
     $('cart-count').textContent = t + '/' + MAX;
 
     // totais
@@ -171,7 +186,7 @@
     $('sum-total').textContent = brl(t * PRICE);
     $('dock-qty').textContent = t ? plural(t) + ' no carrinho' : 'Camisa oficial';
     $('dock-total').textContent = brl(t ? t * PRICE : PRICE);
-    dockBtn.textContent = t ? 'Finalizar' : 'Reservar';
+    dockBtn.textContent = closed ? 'Encerrado' : soldAll ? 'Esgotado' : t ? 'Finalizar' : 'Reservar';
   }
   render.prev = 0;
 
@@ -319,6 +334,7 @@
     submitEl.classList.toggle('is-loading', on);
     submitEl.disabled = on;
     submitEl.querySelector('.btn__text').textContent = on ? 'Reservando…' : 'Confirmar reserva';
+    if (!on) render(); // volta ao estado certo (ex.: esgotado)
   }
 
   function resetForm() {

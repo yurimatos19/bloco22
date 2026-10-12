@@ -348,6 +348,58 @@ function configurar() {
   Logger.log('Gatilho da data de retirada instalado ✅');
 }
 
+/**
+ * RODE UMA VEZ pelo editor para alinhar a planilha ao novo estoque:
+ *  • PAINEL: tira as linhas PP, XG e XXG e adiciona as colunas "Estoque" e "Disponíveis"
+ *  • ITENS: a lista suspensa de Tamanho passa a ter só P, M, G e GG
+ *  • CONFIG: atualiza "Estoque" e "Retirada"
+ * Pode rodar de novo sem problema.
+ */
+function ajustarPlanilha() {
+  const ss = ss_();
+  const old = ['PP', 'XG', 'XXG'];
+
+  // PAINEL
+  const p = mustGet_(ss, 'PAINEL');
+  const colA = p.getRange(1, 1, p.getLastRow(), 1).getValues().map(r => String(r[0]).trim());
+  const header = colA.indexOf('Tamanho') + 1;
+  if (header > 0) {
+    for (let r = colA.length; r > header; r--) {
+      if (old.indexOf(colA[r - 1]) !== -1) p.deleteRow(r);
+    }
+    p.getRange(header, 5, 1, 2).setValues([['Estoque', 'Disponíveis']]);
+    p.getRange(header, 4).copyFormatToRange(p, 5, 6, header, header);
+    const rows = p.getRange(header + 1, 1, 10, 1).getValues();
+    rows.forEach((row, i) => {
+      const r = header + 1 + i;
+      const size = String(row[0]).trim();
+      if (!(size in CONFIG.STOCK)) return;
+      p.getRange(r, 5).setValue(CONFIG.STOCK[size]);
+      p.getRange(r, 6).setFormula('=E' + r + '-B' + r);
+      p.getRange(r, 4).copyFormatToRange(p, 5, 6, r, r);
+    });
+    p.setColumnWidths(5, 2, 180);
+  }
+
+  // ITENS: lista suspensa de tamanhos
+  const it = mustGet_(ss, CONFIG.SHEET_ITENS);
+  it.getRange(CONFIG.FIRST_DATA_ROW, I.TAMANHO, it.getMaxRows() - CONFIG.FIRST_DATA_ROW + 1, 1)
+    .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(CONFIG.SIZES, true).build());
+
+  // CONFIG
+  const c = mustGet_(ss, CONFIG.SHEET_CONFIG);
+  const total = CONFIG.SIZES.reduce((t, sz) => t + CONFIG.STOCK[sz], 0);
+  const labels = c.getRange(1, 1, c.getLastRow(), 1).getValues().map(r => String(r[0]).trim());
+  const setConfig = (label, value) => {
+    const i = labels.indexOf(label);
+    if (i !== -1) c.getRange(i + 1, 2).setValue(value);
+  };
+  setConfig('Estoque', total + ' camisas (' + CONFIG.SIZES.map(sz => sz + ' ' + CONFIG.STOCK[sz]).join(', ') + ')');
+  setConfig('Retirada', 'Comitê da Direita Pernambucana');
+
+  Logger.log('Planilha ajustada ✅  Saldo: %s', JSON.stringify(remaining_()));
+}
+
 /** Confere se as abas e cabeçalhos esperados existem. */
 function verificarPlanilha() {
   const ss = ss_();
