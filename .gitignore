@@ -1,0 +1,8 @@
+# Capturas de teste e configuração local
+.shots/
+.playwright-mcp/
+.claude/
+.DS_Store
+
+# Imagens originais do ChatGPT (as versões otimizadas estão em site/img)
+ChatGPT Image*.png

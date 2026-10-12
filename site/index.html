@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Bloco do 22 Recife — Reserve sua camisa oficial</title>
+  <meta name="description" content="Reserve a camisa oficial do Bloco do 22 por R$ 22,00. Pagamento e retirada exclusivamente no Comitê de Gilson Machado, Av. Herculano Bandeira, 766, Pina, Recife/PE. Não fazemos entregas.">
+  <meta name="theme-color" content="#053B1E">
+  <meta property="og:title" content="Bloco do 22 Recife — Camisa oficial R$ 22,00">
+  <meta property="og:description" content="Reserve pelo site e retire no Comitê de Gilson Machado, no Pina, Recife/PE. Não fazemos entregas.">
+  <meta property="og:image" content="img/banner.jpg">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/png" href="img/logo.png">
+  <link rel="preload" as="image" href="img/galera.webp" type="image/webp" media="(max-width: 899px)">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,600..800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- Faixa de aviso rolante -->
+  <div class="ticker" role="note" aria-label="Retirada só no Comitê, no Pina. Não fazemos entregas. Você paga na hora de retirar.">
+    <div class="ticker__track" aria-hidden="true"><span>Retirada só no Comitê, no Pina</span><span>Não fazemos entregas</span><span>Você paga na hora de retirar</span><span>Retirada só no Comitê, no Pina</span><span>Não fazemos entregas</span><span>Você paga na hora de retirar</span><span>Retirada só no Comitê, no Pina</span><span>Não fazemos entregas</span><span>Você paga na hora de retirar</span><span>Retirada só no Comitê, no Pina</span><span>Não fazemos entregas</span><span>Você paga na hora de retirar</span></div>
+  </div>
+
+  <div id="demo-banner" class="demo-banner" hidden>
+    MODO DEMONSTRAÇÃO — configure <code>API_URL</code> em <code>js/config.js</code>. Reservas não são registradas.
+  </div>
+
+  <!-- HERO -->
+  <header class="hero">
+    <picture class="hero__photo">
+      <source media="(min-width: 900px)" srcset="img/casal-orla.webp" type="image/webp">
+      <source media="(min-width: 900px)" srcset="img/casal-orla.jpg">
+      <source srcset="img/galera.webp" type="image/webp">
+      <img src="img/galera.jpg" alt="Amigos vestindo a camisa do Bloco do 22 na praia de Boa Viagem" width="1000" height="1250" fetchpriority="high">
+    </picture>
+    <div class="hero__shade" aria-hidden="true"></div>
+
+    <div class="hero__content">
+      <picture>
+        <source srcset="img/logo.webp" type="image/webp">
+        <img class="hero__logo" src="img/logo.png" alt="Bloco do 22 — Recife, PE" width="700" height="512">
+      </picture>
+
+      <div class="hero__bottom">
+        <h1 class="hero__title">Camisa oficial do Bloco do 22</h1>
+        <p class="hero__price" aria-label="R$ 22,00"><small aria-hidden="true">R$</small><span class="hero__num" aria-hidden="true">22</span><span class="hero__cents" aria-hidden="true">,00</span></p>
+        <a class="btn btn--primary btn--xl" href="#reservar">
+          Reservar minha camisa
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <p class="hero__note">Reservar é grátis. Você paga só na retirada, no Pina.</p>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- EVENTO -->
+    <section class="wrap event-wrap" aria-labelledby="evento-titulo">
+      <div class="event">
+        <div class="event__date" aria-hidden="true">
+          <span class="event__day">22</span>
+          <span class="event__month">out</span>
+        </div>
+        <div class="event__info">
+          <h2 id="evento-titulo" class="event__title">Quinta-feira, 22 de outubro, às 19h</h2>
+          <p class="event__place">Concentração na Pracinha de Boa Viagem</p>
+          <div class="event__actions">
+            <span class="event__countdown" id="countdown" hidden></span>
+            <a class="event__map" href="https://www.google.com/maps/search/?api=1&amp;query=Pracinha%20de%20Boa%20Viagem%2C%20Recife%20-%20PE" target="_blank" rel="noopener">Ver no mapa</a>
+          </div>
+        </div>
+        <p class="event__note">A camisa você retira antes, no Comitê, no Pina.</p>
+      </div>
+    </section>
+
+    <!-- AVISO OBRIGATÓRIO -->
+    <section class="wrap notice-wrap" aria-labelledby="aviso-titulo">
+      <div class="notice">
+        <h2 id="aviso-titulo" class="notice__title">ATENÇÃO: RESERVA EXCLUSIVA PARA RETIRADA EM RECIFE!</h2>
+        <p>A camisa oficial do Bloco do 22 custa <strong>R$&nbsp;22,00</strong>.</p>
+        <p>Faça sua reserva pelo site e compareça ao <strong>Comitê de Gilson Machado</strong> para efetuar o pagamento e retirar sua camisa.</p>
+        <div class="notice__no">
+          <span><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m6 6 12 12"/></svg>NÃO FAZEMOS ENTREGAS.</span>
+          <span><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m6 6 12 12"/></svg>NÃO EXISTEM OUTROS PONTOS DE RETIRADA.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- COMO FUNCIONA -->
+    <section class="how" aria-labelledby="como-titulo">
+      <div class="wrap">
+        <h2 id="como-titulo" class="h2">Como funciona</h2>
+        <ol class="timeline">
+          <li><b>Reserve aqui</b><span>Escolha até 3 camisas e informe nome e WhatsApp. Leva um minuto.</span></li>
+          <li><b>Guarde o código</b><span>Você recebe um código como B22-K7M4P. Salve o comprovante ou tire print.</span></li>
+          <li><b>Pague e retire no Comitê</b><span>Av. Herculano Bandeira, 766, no Pina. Segunda a sábado, das 9h às 18h.</span></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- GALERIA -->
+    <section class="gallery-sec" aria-labelledby="galeria-titulo">
+      <div class="wrap">
+        <h2 id="galeria-titulo" class="h2">Olha ela aí</h2>
+        <p class="sub">Estampa verde e amarela, exclusiva do bloco. Deslize para ver mais fotos.</p>
+      </div>
+      <div class="carousel" id="carousel" tabindex="0" aria-label="Fotos da camisa">
+        <figure class="slide slide--contain">
+          <picture><source srcset="img/camisa-frente.webp" type="image/webp"><img src="img/camisa-frente.jpg" alt="Camisa oficial vista de frente" width="1000" height="1000"></picture>
+          <figcaption>Frente</figcaption>
+        </figure>
+        <figure class="slide">
+          <picture><source srcset="img/modelo-masc.webp" type="image/webp"><img src="img/modelo-masc.jpg" alt="Homem vestindo a camisa" loading="lazy" width="900" height="1125"></picture>
+          <figcaption>Masculina</figcaption>
+        </figure>
+        <figure class="slide">
+          <picture><source srcset="img/modelo-fem.webp" type="image/webp"><img src="img/modelo-fem.jpg" alt="Mulher vestindo a camisa" loading="lazy" width="900" height="1125"></picture>
+          <figcaption>Feminina</figcaption>
+        </figure>
+        <figure class="slide">
+          <picture><source srcset="img/costas.webp" type="image/webp"><img src="img/costas.jpg" alt="Costas da camisa vestida" loading="lazy" width="900" height="1125"></picture>
+          <figcaption>Costas</figcaption>
+        </figure>
+        <figure class="slide">
+          <picture><source srcset="img/detalhe.webp" type="image/webp"><img src="img/detalhe.jpg" alt="Detalhe da estampa e da gola" loading="lazy" width="900" height="1125"></picture>
+          <figcaption>Detalhe</figcaption>
+        </figure>
+        <figure class="slide slide--contain">
+          <picture><source srcset="img/camisa-frente-costas.webp" type="image/webp"><img src="img/camisa-frente-costas.jpg" alt="Frente e costas da camisa" loading="lazy" width="1400" height="1050"></picture>
+          <figcaption>Frente e costas</figcaption>
+        </figure>
+      </div>
+      <div class="dots" id="dots" aria-hidden="true"></div>
+    </section>
+
+    <!-- RESERVA -->
+    <section id="reservar" class="reserve" aria-labelledby="reserva-titulo">
+      <div class="wrap">
+        <h2 id="reserva-titulo" class="h2 h2--light">Reserve sua camisa</h2>
+        <p class="sub sub--light">Até 3 camisas por reserva, em tamanhos diferentes se quiser.</p>
+
+        <form id="reserve-form" class="panel" novalidate>
+
+          <!-- Passo 1 -->
+          <div class="block">
+            <div class="block__head">
+              <span class="block__n">1</span>
+              <h3 class="block__title">Escolha o tamanho</h3>
+            </div>
+
+            <div class="product">
+              <picture><source srcset="img/camisa-frente.webp" type="image/webp"><img class="product__img" src="img/camisa-frente.jpg" alt="" width="1000" height="1000" loading="lazy"></picture>
+              <div>
+                <p class="product__name">Camisa oficial Bloco do 22</p>
+                <p class="product__price">R$ 22,00</p>
+                <p class="product__limit" id="limit-label">Até 3 por reserva</p>
+              </div>
+            </div>
+
+            <fieldset class="picker" id="picker">
+              <legend class="picker__label">Tamanho</legend>
+              <div class="sizes" id="sizes"></div>
+            </fieldset>
+
+            <button class="btn btn--green btn--block" type="button" id="add-btn" disabled>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              <span id="add-label">Selecione um tamanho</span>
+            </button>
+          </div>
+
+          <!-- Carrinho -->
+          <div class="block" id="cart-block">
+            <div class="block__head">
+              <svg class="block__icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 7h12l-1 13H7L6 7Z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>
+              <h3 class="block__title">Seu carrinho <span class="cart__count" id="cart-count">0/3</span></h3>
+            </div>
+            <ul class="cart" id="cart" aria-live="polite" aria-label="Camisas no carrinho"></ul>
+            <p class="cart__empty" id="cart-empty">Nenhuma camisa ainda. Escolha um tamanho acima e toque em Adicionar.</p>
+          </div>
+
+          <!-- Passo 2 -->
+          <div class="block">
+            <div class="block__head">
+              <span class="block__n">2</span>
+              <h3 class="block__title">Seus dados</h3>
+            </div>
+            <div class="field">
+              <label for="name">Nome completo</label>
+              <input id="name" name="name" type="text" autocomplete="name" autocapitalize="words" enterkeyhint="next" required maxlength="120" placeholder="Maria da Silva Santos">
+              <p class="field__error" id="name-error" hidden></p>
+            </div>
+            <div class="field">
+              <label for="whatsapp">WhatsApp com DDD</label>
+              <input id="whatsapp" aria-describedby="whatsapp-hint" name="whatsapp" type="tel" inputmode="numeric" autocomplete="tel-national" enterkeyhint="done" required placeholder="(81) 99999-9999" maxlength="16">
+              <p class="field__hint" id="whatsapp-hint">Usamos só para falar sobre a sua reserva.</p>
+              <p class="field__error" id="whatsapp-error" hidden></p>
+            </div>
+            <div class="hp" aria-hidden="true">
+              <label for="website">Não preencha</label>
+              <input id="website" name="website" type="text" tabindex="-1" autocomplete="off">
+            </div>
+          </div>
+
+          <!-- Passo 3 -->
+          <div class="block">
+            <div class="block__head">
+              <span class="block__n">3</span>
+              <h3 class="block__title">Confira e confirme</h3>
+            </div>
+
+            <div class="total">
+              <div>
+                <span class="total__label">Total a pagar no Comitê</span>
+                <span class="total__qty" id="sum-qty">0 camisas × R$ 22,00</span>
+              </div>
+              <strong class="total__value" id="sum-total">R$ 0,00</strong>
+            </div>
+
+            <label class="consent" id="consent-box">
+              <input id="consent" type="checkbox" required>
+              <span class="consent__box" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg></span>
+              <span class="consent__text">Estou ciente de que minha reserva não é uma compra online e que o pagamento e a retirada das camisas acontecem exclusivamente no Comitê de Gilson Machado, na Avenida Herculano Bandeira, 766, Pina, Recife/PE, de segunda a sábado, das 9h às 18h. Sei que não existem entregas nem outros locais de retirada.</span>
+            </label>
+
+            <p class="form__error" id="form-error" role="alert" hidden></p>
+
+            <button id="submit" class="btn btn--primary btn--xl btn--block" type="submit">
+              <span class="btn__text">Confirmar reserva</span>
+              <span class="spinner" aria-hidden="true"></span>
+            </button>
+            <p class="form__hint"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Nada é cobrado pelo site</p>
+          </div>
+        </form>
+
+        <div id="reopen-slot"></div>
+      </div>
+    </section>
+
+    <!-- RETIRADA -->
+    <section id="retirada" class="place" aria-labelledby="retirada-titulo">
+      <div class="wrap">
+        <h2 id="retirada-titulo" class="h2">Onde pagar e retirar</h2>
+        <p class="sub">É o único local. Não fazemos entregas.</p>
+
+        <div class="place__card">
+          <div class="place__map">
+            <iframe title="Mapa: Comitê de Gilson Machado, Av. Herculano Bandeira, 766, Pina, Recife" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+              src="https://www.google.com/maps?q=Avenida%20Herculano%20Bandeira%2C%20766%2C%20Pina%2C%20Recife%20-%20PE&output=embed"></iframe>
+          </div>
+          <div class="place__body">
+            <p class="place__name">Comitê de Gilson Machado</p>
+            <p class="place__line">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11a7 7 0 1 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+              <span>Avenida Herculano Bandeira, 766<br>Bairro do Pina — Recife/PE</span>
+            </p>
+            <p class="place__line">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+              <span>Segunda a sábado, das 9h às 18h</span>
+            </p>
+            <div class="place__actions">
+              <a class="btn btn--primary btn--block js-directions" href="#" target="_blank" rel="noopener">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 11 18-8-8 18-2-8Z"/></svg>Como chegar
+              </a>
+              <button class="btn btn--soft btn--block js-copy" type="button">Copiar endereço</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- FAQ -->
+    <section class="faq-sec" aria-labelledby="faq-titulo">
+      <div class="wrap">
+        <h2 id="faq-titulo" class="h2">Dúvidas frequentes</h2>
+        <div class="faq">
+          <details><summary>Posso pagar pelo site ou por Pix?</summary><p>Não. O site serve apenas para reservar. O pagamento é feito presencialmente no Comitê de Gilson Machado, no momento da retirada.</p></details>
+          <details><summary>Vocês entregam ou enviam pelos Correios?</summary><p>Não. Não fazemos entregas, envios pelos Correios nem por transportadora. A retirada é somente no Comitê, no Pina, em Recife.</p></details>
+          <details><summary>Existe outro ponto de retirada?</summary><p>Não. O único local é o Comitê de Gilson Machado — Av. Herculano Bandeira, 766, Pina, Recife/PE.</p></details>
+          <details><summary>Quantas camisas posso reservar?</summary><p>Até 3 por reserva, combinando PP, P, M, G, GG, XG e XXG como preferir.</p></details>
+          <details><summary>O que levar na retirada?</summary><p>O código da reserva (print ou comprovante) e o valor: R$ 22,00 por camisa. O pagamento é feito na hora.</p></details>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <picture><source srcset="img/logo.webp" type="image/webp"><img src="img/logo.png" alt="Bloco do 22" width="140" height="102" loading="lazy"></picture>
+    <p><strong>Camisa oficial R$ 22,00</strong></p>
+    <p>Pagamento e retirada exclusivamente no Comitê de Gilson Machado — Av. Herculano Bandeira, 766, Pina, Recife/PE · Seg. a sáb., 9h às 18h.</p>
+    <p class="footer__warn">Não fazemos entregas. Não existem outros pontos de retirada.</p>
+  </footer>
+
+  <!-- Barra fixa inferior (mobile) -->
+  <div class="dock" id="dock" aria-hidden="true">
+    <div class="dock__info">
+      <span class="dock__qty" id="dock-qty">Camisa oficial</span>
+      <strong class="dock__total" id="dock-total">R$ 22,00</strong>
+    </div>
+    <button class="btn btn--primary" type="button" id="dock-btn" tabindex="-1">Reservar</button>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- TELA DE SUCESSO -->
+  <div id="success" class="success" role="dialog" aria-modal="true" aria-labelledby="success-title" hidden>
+    <canvas class="confetti" id="confetti" aria-hidden="true"></canvas>
+    <div class="success__scroll"><div class="success__inner">
+      <div class="success__top">
+        <button id="btn-close" class="success__x" type="button" aria-label="Fechar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+        <div class="success__check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg></div>
+        <h2 id="success-title" class="success__title">SUA CAMISA ESTÁ RESERVADA!</h2>
+        <p class="success__hi" id="r-name"></p>
+        <p class="success__event">Bloco do 22: quinta, 22/10, às 19h, na Pracinha de Boa Viagem</p>
+      </div>
+
+      <div class="ticket">
+        <div class="ticket__main">
+          <p class="ticket__label">Código da reserva</p>
+          <p class="ticket__code" id="r-code">—</p>
+          <ul class="ticket__items" id="r-items"></ul>
+          <div class="ticket__total"><span id="r-qty"></span><strong id="r-total"></strong></div>
+        </div>
+        <div class="ticket__cut" aria-hidden="true"></div>
+        <div class="ticket__pickup">
+          <p class="pickup__title">ONDE PAGAR E RETIRAR?</p>
+          <p class="pickup__place"><strong>Comitê de Gilson Machado</strong><br>Av. Herculano Bandeira, 766 — Pina, Recife/PE.<br>Segunda a sábado, das 9h às 18h.</p>
+          <p class="pickup__warn"><strong>Importante:</strong> sua camisa não foi paga pelo site. O pagamento será realizado presencialmente no momento da retirada.</p>
+        </div>
+      </div>
+
+      <div class="success__actions">
+        <a class="btn btn--primary btn--xl btn--block js-directions" href="#" target="_blank" rel="noopener">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 11 18-8-8 18-2-8Z"/></svg>COMO CHEGAR
+        </a>
+        <div class="success__row">
+          <button id="btn-save" class="btn btn--light" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Salvar comprovante
+          </button>
+          <button id="btn-share" class="btn btn--whats" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4M12 2v13"/></svg>Compartilhar
+          </button>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
