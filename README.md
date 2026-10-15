@@ -52,7 +52,7 @@ python3 -m http.server 5522 -d site
 ## 3. Operação diária (equipe do Comitê)
 
 Tudo pela aba **Balcão**: digite o código (B22-…) ou o WhatsApp, confira, receba e marque **Entregue**.
-Todas as reservas valem até **quinta, 22/10, às 18h** (entrega a partir de domingo, 18/10, às 11h); depois de 22/10 às 18h o site fecha sozinho. Vencida, vira **Expirado**
+Retirada de **domingo, 18/10, às 11h, até terça, 20/10, às 18h** (todas as reservas vencem nessa data); depois de 20/10 às 18h o site fecha sozinho. Vencida, vira **Expirado**
 sozinha (gatilho de hora em hora), a camisa volta ao estoque e a pessoa pode reservar de novo.
 Quem desistir: na aba Reservas, Status = **Cancelado** (as camisas voltam ao estoque).
 

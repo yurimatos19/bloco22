@@ -12,7 +12,7 @@
  * Cancelar uma reserva (Status = Cancelado) devolve as camisas ao estoque.
  * Limite por pessoa: cada WhatsApp pode ter no total CFG_MAX camisas em reservas ativas.
  * Retirada: começa em PICKUP_START (domingo, 18/10, às 11h); depois, todos os dias das 9h às 18h.
- * Validade: todas as reservas valem até o último dia de retirada (LAST_PICKUP_DAY, 22/10, às 18h).
+ * Validade: todas as reservas valem até o último dia de retirada (LAST_PICKUP_DAY, 20/10, às 18h).
  * Vencida → Status "Expirado" (automático, de hora em hora), as camisas voltam ao estoque e a
  * pessoa pode reservar de novo.
  *
@@ -26,11 +26,11 @@ const APP = {
   SIZES: ['P', 'M', 'G', 'GG'],
   SHEETS: { PAINEL: 'Painel', BALCAO: 'Balcão', RESERVAS: 'Reservas', CONFIG: 'Configurações', GUIA: 'Como usar' },
   STATUS: { RESERVADO: 'Reservado', ENTREGUE: 'Entregue', CANCELADO: 'Cancelado', EXPIRADO: 'Expirado' },
-  HOLD_DAYS: 4,                 // dias de validade a partir de 18/10 (ou da reserva): na prática, até 22/10
+  HOLD_DAYS: 2,                 // dias de validade a partir de 18/10 (ou da reserva), limitado a LAST_PICKUP_DAY
   PICKUP_START: '2026-10-18',   // primeiro dia de retirada no Comitê (domingo)
   PICKUP_START_HOUR: 11,        // no primeiro dia, a entrega começa às 11h
   PICKUP_HOUR: 18,              // a reserva vence às 18h do último dia
-  LAST_PICKUP_DAY: '2026-10-22', // nenhum prazo passa do dia do evento
+  LAST_PICKUP_DAY: '2026-10-20', // último dia de retirada (3 dias: 18 a 20/10); depois disso o site fecha
   TZ: 'America/Recife',
   // Valores iniciais da aba Configurações (depois a equipe edita lá mesmo)
   DEFAULTS: {
@@ -39,7 +39,7 @@ const APP = {
     stock: { P: 150, M: 250, G: 400, GG: 200 },
     local: 'Comitê da Direita Pernambucana',
     endereco: 'Av. Herculano Bandeira, 766 — Pina, Recife/PE',
-    horario: 'Todos os dias, das 9h às 18h, a partir de domingo, 18/10, às 11h',
+    horario: 'De domingo, 18/10, às 11h, até terça, 20/10, das 9h às 18h',
     evento: 'Quinta-feira, 22/10/2026, às 19h, na Pracinha de Boa Viagem',
   },
   CODE_PREFIX: 'B22-',
@@ -579,15 +579,15 @@ function ativarConteudo_(ss) {
   expirarReservas();
 
   // Configurações e guia: validade da reserva
-  cfg.getRange('A22:B22').setValues([['Validade da reserva', 'Até quinta, 22/10, às ' + APP.PICKUP_HOUR + 'h']]);
+  cfg.getRange('A22:B22').setValues([['Validade da reserva', 'Até terça, 20/10, às ' + APP.PICKUP_HOUR + 'h']]);
   const cfgLabels = cfg.getRange(1, 1, cfg.getLastRow(), 1).getValues().map(r => String(r[0]).trim());
   const hRow = cfgLabels.indexOf('Horário de retirada');
   if (hRow !== -1) cfg.getRange(hRow + 1, 2).setValue(APP.DEFAULTS.horario);
   cfg.getRange('A21:B21').copyFormatToRange(cfg, 1, 2, 22, 22);
   const guia = sheet_(APP.SHEETS.GUIA);
   const guiaTxt = guia.getRange(1, 2, guia.getLastRow(), 1).getValues().map(r => String(r[0]));
-  const aviso = 'A entrega vai de domingo, 18/10, às 11h, até quinta, 22/10, às 18h (todos os dias, das 9h às 18h). Reservas não retiradas até 22/10, às 18h, viram Expirado sozinhas e as camisas voltam ao estoque. O prazo aparece na coluna Retirar até.';
-  const old = guiaTxt.findIndex(t => t.indexOf('Reservas não retiradas no prazo') !== -1);
+  const aviso = 'A entrega vai de domingo, 18/10, às 11h, até terça, 20/10, às 18h (das 9h às 18h). Reservas não retiradas até 20/10, às 18h, viram Expirado sozinhas e as camisas voltam ao estoque. O prazo aparece na coluna Retirar até.';
+  const old = guiaTxt.findIndex(t => t.indexOf('Reservas não retiradas') !== -1);
   recalcularPrazos_();
   if (old !== -1) guia.getRange(old + 1, 2).setValue(aviso);
   else if (guiaTxt.indexOf(aviso) === -1) {
