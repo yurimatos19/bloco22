@@ -51,6 +51,10 @@
   }
 
   if (DEMO) $('demo-banner').hidden = false;
+
+  // Aviso de mudança de data: some depois que o prazo de quem reservou antes (20/10, 18h) passar
+  var DELIVERY_START = new Date('2026-10-18T11:00:00-03:00');
+  if (new Date() > new Date('2026-10-20T18:00:00-03:00')) $('date-notice').hidden = true;
   document.querySelectorAll('.js-directions').forEach(function (a) { a.href = MAPS_URL; });
 
   /* ---------- Escolha do tamanho (1 camisa por pessoa) ---------- */
@@ -628,6 +632,14 @@
   }
   try {
     var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    // Reservas feitas antes da mudança de data (entrega passou para 18/10, às 11h): atualiza o comprovante salvo
+    if (saved && saved.createdAt && new Date(saved.createdAt) < DELIVERY_START && saved.deadlineAt &&
+        new Date(saved.deadlineAt) < new Date('2026-10-20T18:00:00-03:00')) {
+      saved.pickupFrom = 'dom, 18/10, às 11h';
+      saved.deadline = 'ter, 20/10, às 18h';
+      saved.deadlineAt = '2026-10-20T18:00:00-03:00';
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    }
     var expired = saved && saved.deadlineAt && new Date(saved.deadlineAt) < new Date();
     if (expired) localStorage.removeItem(STORAGE_KEY);
     else if (saved && saved.code && Array.isArray(saved.items)) addReopen(saved);
