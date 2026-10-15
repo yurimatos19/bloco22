@@ -52,9 +52,9 @@
 
   if (DEMO) $('demo-banner').hidden = false;
 
-  // Aviso de mudança de data: some depois que o prazo de quem reservou antes (20/10, 18h) passar
+  // Aviso de mudança de data: some depois do último dia de retirada (22/10, 18h)
   var DELIVERY_START = new Date('2026-10-18T11:00:00-03:00');
-  if (new Date() > new Date('2026-10-20T18:00:00-03:00')) $('date-notice').hidden = true;
+  if (new Date() > new Date('2026-10-22T18:00:00-03:00')) $('date-notice').hidden = true;
   document.querySelectorAll('.js-directions').forEach(function (a) { a.href = MAPS_URL; });
 
   /* ---------- Escolha do tamanho (1 camisa por pessoa) ---------- */
@@ -442,7 +442,7 @@
   var logo = new Image();
   logo.src = 'img/logo.png';
 
-  // "Retire até sáb, 17/10, às 18h" ou, se a retirada ainda não começou, "Retire de dom, 18/10, às 11h, até ter, 20/10, às 18h"
+  // "Retire até sáb, 17/10, às 18h" ou, se a retirada ainda não começou, "Retire de dom, 18/10, às 11h, até qui, 22/10, às 18h"
   function pickupText(r) {
     return 'Retire ' + (r.pickupFrom ? 'de ' + r.pickupFrom + ', ' : '') + 'até ' + r.deadline;
   }
@@ -632,12 +632,12 @@
   }
   try {
     var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    // Reservas feitas antes da mudança de data (entrega passou para 18/10, às 11h): atualiza o comprovante salvo
+    // Reservas feitas antes da mudança (entrega de 18/10, às 11h, até 22/10, às 18h): atualiza o comprovante salvo
     if (saved && saved.createdAt && new Date(saved.createdAt) < DELIVERY_START && saved.deadlineAt &&
-        new Date(saved.deadlineAt) < new Date('2026-10-20T18:00:00-03:00')) {
+        new Date(saved.deadlineAt) < new Date('2026-10-22T18:00:00-03:00')) {
       saved.pickupFrom = 'dom, 18/10, às 11h';
-      saved.deadline = 'ter, 20/10, às 18h';
-      saved.deadlineAt = '2026-10-20T18:00:00-03:00';
+      saved.deadline = 'qui, 22/10, às 18h';
+      saved.deadlineAt = '2026-10-22T18:00:00-03:00';
       localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     }
     var expired = saved && saved.deadlineAt && new Date(saved.deadlineAt) < new Date();

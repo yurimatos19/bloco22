@@ -12,7 +12,7 @@
  * Cancelar uma reserva (Status = Cancelado) devolve as camisas ao estoque.
  * Limite por pessoa: cada WhatsApp pode ter no total CFG_MAX camisas em reservas ativas.
  * Retirada: começa em PICKUP_START (domingo, 18/10, às 11h); depois, todos os dias das 9h às 18h.
- * Validade: a reserva vale 2 dias, até as 18h, contados da reserva (ou de 18/10, se reservou antes).
+ * Validade: todas as reservas valem até o último dia de retirada (LAST_PICKUP_DAY, 22/10, às 18h).
  * Vencida → Status "Expirado" (automático, de hora em hora), as camisas voltam ao estoque e a
  * pessoa pode reservar de novo.
  *
@@ -26,7 +26,7 @@ const APP = {
   SIZES: ['P', 'M', 'G', 'GG'],
   SHEETS: { PAINEL: 'Painel', BALCAO: 'Balcão', RESERVAS: 'Reservas', CONFIG: 'Configurações', GUIA: 'Como usar' },
   STATUS: { RESERVADO: 'Reservado', ENTREGUE: 'Entregue', CANCELADO: 'Cancelado', EXPIRADO: 'Expirado' },
-  HOLD_DAYS: 2,                 // validade da reserva, em dias
+  HOLD_DAYS: 4,                 // dias de validade a partir de 18/10 (ou da reserva): na prática, até 22/10
   PICKUP_START: '2026-10-18',   // primeiro dia de retirada no Comitê (domingo)
   PICKUP_START_HOUR: 11,        // no primeiro dia, a entrega começa às 11h
   PICKUP_HOUR: 18,              // a reserva vence às 18h do último dia
@@ -579,14 +579,14 @@ function ativarConteudo_(ss) {
   expirarReservas();
 
   // Configurações e guia: validade da reserva
-  cfg.getRange('A22:B22').setValues([['Validade da reserva', APP.HOLD_DAYS + ' dias, até as ' + APP.PICKUP_HOUR + 'h (contando a partir de 18/10 para quem reservou antes)']]);
+  cfg.getRange('A22:B22').setValues([['Validade da reserva', 'Até quinta, 22/10, às ' + APP.PICKUP_HOUR + 'h']]);
   const cfgLabels = cfg.getRange(1, 1, cfg.getLastRow(), 1).getValues().map(r => String(r[0]).trim());
   const hRow = cfgLabels.indexOf('Horário de retirada');
   if (hRow !== -1) cfg.getRange(hRow + 1, 2).setValue(APP.DEFAULTS.horario);
   cfg.getRange('A21:B21').copyFormatToRange(cfg, 1, 2, 22, 22);
   const guia = sheet_(APP.SHEETS.GUIA);
   const guiaTxt = guia.getRange(1, 2, guia.getLastRow(), 1).getValues().map(r => String(r[0]));
-  const aviso = 'A entrega começa no domingo, 18/10, às 11h; depois, todos os dias das 9h às 18h. Reservas não retiradas no prazo (2 dias, até as 18h) viram Expirado sozinhas e as camisas voltam ao estoque. O prazo aparece na coluna Retirar até.';
+  const aviso = 'A entrega vai de domingo, 18/10, às 11h, até quinta, 22/10, às 18h (todos os dias, das 9h às 18h). Reservas não retiradas até 22/10, às 18h, viram Expirado sozinhas e as camisas voltam ao estoque. O prazo aparece na coluna Retirar até.';
   const old = guiaTxt.findIndex(t => t.indexOf('Reservas não retiradas no prazo') !== -1);
   recalcularPrazos_();
   if (old !== -1) guia.getRange(old + 1, 2).setValue(aviso);
