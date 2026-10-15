@@ -52,7 +52,7 @@
 
   if (DEMO) $('demo-banner').hidden = false;
 
-  // Aviso de mudança de data: some depois do último dia de retirada (20/10, 18h)
+  // Aviso de mudança de data: some depois que o prazo de quem reservou antes passar (20/10, 18h)
   var DELIVERY_START = new Date('2026-10-18T11:00:00-03:00');
   if (new Date() > new Date('2026-10-20T18:00:00-03:00')) $('date-notice').hidden = true;
   document.querySelectorAll('.js-directions').forEach(function (a) { a.href = MAPS_URL; });
@@ -84,6 +84,14 @@
       if (d.stock) stock = d.stock;
       render();
     }).catch(function () { /* sem saldo: o servidor confere na hora de reservar */ });
+  }
+
+  // Esgotado agora, mas camisas de reservas não retiradas no prazo voltam para o site
+  var FIRST_WAVE_END = new Date('2026-10-20T18:00:00-03:00');
+  function soldOutText() {
+    return new Date() < FIRST_WAVE_END
+      ? 'Esgotado por enquanto. Camisas não retiradas até terça, 20/10, às 18h, voltam para o site.'
+      : 'Esgotado por enquanto. Camisas de reservas vencidas voltam para o site: volte mais tarde.';
   }
 
   function render() {
@@ -118,13 +126,13 @@
 
     var lim = $('limit-label');
     lim.textContent = closed ? 'As reservas pelo site foram encerradas.'
-      : soldAll ? 'Todas as camisas já foram reservadas.'
+      : soldAll ? soldOutText()
       : '1 camisa por pessoa';
     lim.classList.toggle('full', blocked);
 
     var choice = $('choice');
     choice.textContent = closed ? 'As reservas pelo site foram encerradas.'
-      : soldAll ? 'Todas as camisas já foram reservadas.'
+      : soldAll ? soldOutText()
       : selected ? 'Sua camisa: tamanho ' + selected + '. Para trocar, toque em outro tamanho.'
       : 'Toque no tamanho da sua camisa.';
     choice.classList.toggle('is-set', !!selected);
@@ -454,7 +462,7 @@
       'Pagamento e retirada SOMENTE no Comitê da Direita Pernambucana\n' +
       'Av. Herculano Bandeira, 766 — Pina, Recife/PE\n' +
       (r.deadline ? pickupText(r) + '.\n' : '') +
-      'De 18/10 (a partir das 11h) a 20/10, das 9h às 18h. Não há entregas.\n' + MAPS_URL;
+      'Das 9h às 18h, a partir de domingo, 18/10, às 11h. Não há entregas.\n' + MAPS_URL;
   }
 
   function buildReceipt(r) {
@@ -509,7 +517,7 @@
     x.fillText('Comitê da Direita Pernambucana', W / 2, y + 140);
     x.font = '600 34px ' + B;
     x.fillText('Av. Herculano Bandeira, 766 — Pina, Recife/PE', W / 2, y + 190);
-    x.fillText('De 18/10 a 20/10, das 9h às 18h', W / 2, y + 236);
+    x.fillText('Das 9h às 18h, a partir de 18/10, às 11h', W / 2, y + 236);
     if (r.deadline) {
       x.fillStyle = '#032814'; roundRect(x, W / 2 - 440, y + 262, 880, 60, 30); x.fill();
       x.fillStyle = '#FFD21F'; x.font = '800 32px ' + B;
