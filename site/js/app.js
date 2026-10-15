@@ -438,7 +438,7 @@
   var logo = new Image();
   logo.src = 'img/logo.png';
 
-  // "Retire até sáb, 17/10, às 18h" ou, se a retirada ainda não começou, "Retire de qui, 15/10, até sáb, 17/10, às 18h"
+  // "Retire até sáb, 17/10, às 18h" ou, se a retirada ainda não começou, "Retire de dom, 18/10, às 11h, até ter, 20/10, às 18h"
   function pickupText(r) {
     return 'Retire ' + (r.pickupFrom ? 'de ' + r.pickupFrom + ', ' : '') + 'até ' + r.deadline;
   }
