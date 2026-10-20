@@ -2,7 +2,7 @@
 // Enquanto estiver vazia, o site roda em MODO DEMONSTRAÇÃO e NÃO registra reservas.
 window.BLOCO22_CONFIG = {
   // Para pausar as reservas, escreva o aviso aqui (o site para de chamar o sistema).
-  // Para reabrir, deixe vazio: PAUSED: 'Estamos preparando novas camisas para vocês! O Bloco do 22 já é um sucesso. Mais informações em breve.',
+  // Para reabrir, deixe vazio: PAUSED: '',
   PAUSED: 'Estamos preparando novas camisas para vocês! O Bloco do 22 já é um sucesso. Mais informações em breve.',
   // Reservas pelo Supabase (aguenta milhares de acessos; a planilha recebe a cada 1 minuto)
   SUPABASE_URL: 'https://mmvcveyfvysrzoxcvzxd.supabase.co',
