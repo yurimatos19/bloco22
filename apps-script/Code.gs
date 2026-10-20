@@ -70,22 +70,50 @@ const NCOLS = HEADERS.length;
 
 // Muita gente abrindo o site ao mesmo tempo: o saldo fica guardado por alguns segundos, para não
 // ler a planilha inteira a cada visita. Uma reserva nova apaga o guardado na hora.
-const STATUS_CACHE_KEY = 'status_v1';
-const STATUS_CACHE_SEC = 20;
+// O saldo guardado vale 20 s. Depois disso, só UMA visita por vez lê a planilha para atualizar;
+// as outras recebem o último saldo na hora. Se a planilha estiver lenta ou der erro, continua
+// valendo o último saldo bom (antes, cada visita insistia na planilha e o Google travava tudo).
+const STATUS_CACHE_KEY = 'status_v3';
+const STATUS_FRESH_MS = 20000;
 
 function doGet() {
   const cache = CacheService.getScriptCache();
   const hit = cache.get(STATUS_CACHE_KEY);
-  if (hit) return text_(hit);
-  const s = settings_();
-  const body = JSON.stringify({ ok: true, open: s.open, price: s.price, max: s.max, stock: remaining_(s.stock) });
-  cache.put(STATUS_CACHE_KEY, body, STATUS_CACHE_SEC);
-  return text_(body);
+  const saved = hit ? JSON.parse(hit) : null;
+  if (saved && Date.now() - saved.at < STATUS_FRESH_MS) return text_(saved.body);
+  if (saved && cache.get('status_refreshing')) return text_(saved.body);
+  cache.put('status_refreshing', '1', 15);
+  try {
+    const s = settingsCached_();
+    const body = JSON.stringify({ ok: true, open: s.open, price: s.price, max: s.max, stock: remaining_(s.stock) });
+    cache.put(STATUS_CACHE_KEY, JSON.stringify({ at: Date.now(), body: body }), 21600);
+    return text_(body);
+  } catch (err) {
+    if (saved) return text_(saved.body);
+    return json_({ ok: false, busy: true });
+  } finally {
+    cache.remove('status_refreshing');
+  }
+}
+
+// Configurações guardadas por 60 s (ler a aba a cada pedido pesa na planilha).
+function settingsCached_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('cfg_v1');
+  let s;
+  if (hit) {
+    s = JSON.parse(hit);
+  } else {
+    s = settings_();
+    cache.put('cfg_v1', JSON.stringify(s), 60);
+  }
+  s.open = s.open && !pickupOver_(new Date());
+  return s;
 }
 
 function doPost(e) {
   try {
-    const s = settings_();
+    const s = settingsCached_();
     if (!s.open) return json_({ ok: false, error: 'As reservas estão encerradas no momento.' });
 
     let data;
@@ -115,7 +143,7 @@ function doPost(e) {
     // Uma reserva por vez (evita estoque a mais e código repetido). Se a fila estiver longa,
     // responde "ocupado" sem gravar nada, e o site tenta de novo sozinho.
     const lock = LockService.getScriptLock();
-    if (!lock.tryLock(15000)) {
+    if (!lock.tryLock(8000)) {
       return json_({ ok: false, busy: true, error: 'Muita gente reservando agora. Tente de novo em alguns segundos.' });
     }
     try {
@@ -155,7 +183,9 @@ function doPost(e) {
       countReservation_(v.phone);
       const body = JSON.stringify(Object.assign({ ok: true }, reservation));
       if (rid) cache.put(rid, body, 21600);
-      cache.remove(STATUS_CACHE_KEY);
+      // Saldo guardado fica "vencido": a próxima visita atualiza (as outras seguem com o último)
+      const st = cache.get(STATUS_CACHE_KEY);
+      if (st) cache.put(STATUS_CACHE_KEY, JSON.stringify({ at: 0, body: JSON.parse(st).body }), 21600);
       return text_(body);
     } finally {
       lock.releaseLock();
