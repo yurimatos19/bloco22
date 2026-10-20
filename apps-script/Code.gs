@@ -194,7 +194,8 @@ function doPost(e) {
     console.error(err);
     return json_({
       ok: false,
-      error: 'Não foi possível registrar sua reserva agora. Tente novamente em instantes.',
+      busy: true, // planilha sobrecarregada: o site tenta de novo sozinho
+      error: 'Muita gente reservando agora. Tente de novo em alguns segundos.',
       detalhe: String(err && err.message || err), // ajuda no diagnóstico (não contém dados pessoais)
     });
   }

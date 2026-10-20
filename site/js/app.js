@@ -227,7 +227,7 @@
   /* ---------- Envio ---------- */
   form.addEventListener('submit', function (e) {
     e.preventDefault();
-    if (submitEl.classList.contains('is-loading')) return;
+    if (submitEl.classList.contains('is-loading') || coolTimer) return;
     showFormError('');
     var problem = check(true);
     if (problem) { guide(problem); return; }
@@ -252,7 +252,11 @@
     sendWithRetry(payload)
       .then(function (res) {
         if (res && res.stock) { stock = res.stock; render(); }
-        if (!res || !res.ok) throw new Error((res && res.error) || 'Não foi possível concluir sua reserva.');
+        if (!res || !res.ok) {
+          var e = new Error((res && res.error) || 'Não foi possível concluir sua reserva.');
+          e.busy = !res || !!res.busy;
+          throw e;
+        }
         pending = null;
         res.phone = payload.whatsapp; // fica só neste celular, para o "Mandar no meu WhatsApp"
         saveLocal(res);
@@ -261,12 +265,14 @@
         loadStock();
       })
       .catch(function (err) {
-        var msg = err && !err.retryable && err.message ? err.message
-          : 'Não deu para confirmar sua reserva agora. Toque em Confirmar reserva de novo.';
+        var busy = !err || err.retryable || err.busy;
+        var msg = busy ? 'Muita gente reservando agora. Espere uns segundos e toque em Confirmar reserva de novo.' : err.message;
         showFormError(msg);
         focusOn(formError);
+        if (busy) { cooldown(20); return; }
+        setLoading(false);
       })
-      .finally(function () { setLoading(false); });
+      .then(function () { if (!coolTimer) setLoading(false); });
   });
 
   function send(payload) {
@@ -336,6 +342,20 @@
       });
     }
     return attempt(0);
+  }
+
+  // Depois de falhar por congestionamento, o botão espera um pouco: clicar sem parar só piora a fila.
+  var coolTimer = null;
+  function cooldown(sec) {
+    submitEl.classList.remove('is-loading');
+    submitEl.disabled = true;
+    var label = submitEl.querySelector('.btn__text');
+    (function tick() {
+      if (sec <= 0) { coolTimer = null; setLoading(false); return; }
+      label.textContent = 'Tente de novo em ' + sec + 's';
+      sec--;
+      coolTimer = setTimeout(tick, 1000);
+    })();
   }
 
   function setLoading(on) {
