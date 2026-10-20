@@ -3,7 +3,7 @@
 window.BLOCO22_CONFIG = {
   // Para pausar as reservas, escreva o aviso aqui (o site para de chamar o sistema).
   // Para reabrir, deixe vazio: PAUSED: '',
-  PAUSED: 'Estamos preparando novas camisas para vocês! O Bloco do 22 já é um sucesso. Mais informações em breve.',
+  PAUSED: 'Pernambuco é terra de bolsonarista sim! O Bloco do 22 já é um sucesso e estamos preparando novas camisas para vocês. Mais informações em breve.',
   // Reservas pelo Supabase (aguenta milhares de acessos; a planilha recebe a cada 1 minuto)
   SUPABASE_URL: 'https://mmvcveyfvysrzoxcvzxd.supabase.co',
   SUPABASE_KEY: 'sb_publishable_UXy2eIUyoG-BW8COyuhSmg_LGBvxc4S',
