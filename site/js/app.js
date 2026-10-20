@@ -306,7 +306,7 @@
   // de acessos. Tenta de novo sozinho, esperando cada vez mais (com um sorteio, para que nem todo
   // mundo reenvie no mesmo segundo). Reenviar é seguro: o id da reserva evita reserva em dobro.
   var SEND_TIMEOUT = 40000;
-  var RETRY_WAITS = [2000, 4000, 7000, 11000, 16000];
+  var RETRY_WAITS = [4000, 10000]; // poucas tentativas: cada uma ocupa o limite de execuções do Google
   var pending = null;
 
   function newId() {
