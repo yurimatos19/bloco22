@@ -52,9 +52,7 @@
 
   if (DEMO) $('demo-banner').hidden = false;
 
-  // Aviso de mudança de data: some depois que o prazo de quem reservou antes passar (20/10, 18h)
   var DELIVERY_START = new Date('2026-10-18T11:00:00-03:00');
-  if (new Date() > new Date('2026-10-20T18:00:00-03:00')) $('date-notice').hidden = true;
   document.querySelectorAll('.js-directions').forEach(function (a) { a.href = MAPS_URL; });
 
   /* ---------- Escolha do tamanho (1 camisa por pessoa) ---------- */
@@ -244,11 +242,18 @@
       website: $('website').value,
     };
 
+    // Mesmo id em todos os reenvios desta reserva: se a primeira tentativa já gravou, o servidor
+    // devolve a mesma reserva em vez de dizer que o WhatsApp já tem uma.
+    var sig = JSON.stringify(payload);
+    if (!pending || pending.sig !== sig) pending = { sig: sig, rid: newId() };
+    payload.rid = pending.rid;
+
     setLoading(true);
     sendWithRetry(payload)
       .then(function (res) {
         if (res && res.stock) { stock = res.stock; render(); }
         if (!res || !res.ok) throw new Error((res && res.error) || 'Não foi possível concluir sua reserva.');
+        pending = null;
         res.phone = payload.whatsapp; // fica só neste celular, para o "Mandar no meu WhatsApp"
         saveLocal(res);
         resetForm();
@@ -256,9 +261,8 @@
         loadStock();
       })
       .catch(function (err) {
-        var msg = err && err.message && !/fetch|network|Load failed|JSON/i.test(err.message)
-          ? err.message
-          : 'Sem conexão com o sistema de reservas. Confira sua internet e toque em Confirmar reserva de novo.';
+        var msg = err && !err.retryable && err.message ? err.message
+          : 'Muita gente reservando ao mesmo tempo e sua reserva ainda não foi confirmada. Espere um minuto e toque em Confirmar reserva de novo. Se ela já tiver sido gravada, o site mostra o seu código, sem reservar duas vezes.';
         showFormError(msg);
         focusOn(formError);
       })
@@ -281,25 +285,54 @@
       });
     }
     // text/plain evita o preflight CORS, que o Apps Script não suporta.
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer = ctrl && setTimeout(function () { ctrl.abort(); }, SEND_TIMEOUT);
     return fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
       redirect: 'follow',
-    }).then(function (r) { return r.json(); });
+      signal: ctrl ? ctrl.signal : undefined,
+    }).then(function (r) { return r.json(); })
+      .catch(function (err) { // sem resposta, demorou demais ou o Google devolveu página de erro
+        var e = new Error((err && err.message) || 'network');
+        e.retryable = true;
+        throw e;
+      })
+      .finally(function () { clearTimeout(timer); });
   }
 
-  // Se o servidor responder "ocupado" (nada foi gravado), espera e tenta de novo, até 2 vezes.
-  // Em falha de rede não reenvia: a reserva pode ter sido gravada.
+  // Congestionamento: servidor "ocupado", conexão caiu, demorou demais ou o Google recusou por excesso
+  // de acessos. Tenta de novo sozinho, esperando cada vez mais (com um sorteio, para que nem todo
+  // mundo reenvie no mesmo segundo). Reenviar é seguro: o id da reserva evita reserva em dobro.
+  var SEND_TIMEOUT = 40000;
+  var RETRY_WAITS = [2000, 4000, 7000, 11000, 16000];
+  var pending = null;
+
+  function newId() {
+    var a = 'abcdefghijklmnopqrstuvwxyz0123456789', id = '';
+    var rnd = window.crypto && crypto.getRandomValues ? crypto.getRandomValues(new Uint8Array(20)) : null;
+    for (var i = 0; i < 20; i++) id += a[(rnd ? rnd[i] : Math.floor(Math.random() * 256)) % a.length];
+    return id;
+  }
+
   function sendWithRetry(payload) {
-    var waits = [2500, 5000];
+    var label = submitEl.querySelector('.btn__text');
+    function retry(n, last) {
+      if (n >= RETRY_WAITS.length) {
+        if (last instanceof Error) throw last;
+        return last;
+      }
+      label.textContent = 'Muita gente reservando agora. Tentando de novo (' + (n + 2) + ' de ' + (RETRY_WAITS.length + 1) + ')…';
+      var wait = RETRY_WAITS[n] * (0.7 + Math.random() * 0.6);
+      return new Promise(function (r) { setTimeout(r, wait); }).then(function () { return attempt(n + 1); });
+    }
     function attempt(n) {
       return send(payload).then(function (res) {
-        if (res && res.busy && n < waits.length) {
-          submitEl.querySelector('.btn__text').textContent = 'Muita gente reservando agora, tentando de novo…';
-          return new Promise(function (r) { setTimeout(r, waits[n]); }).then(function () { return attempt(n + 1); });
-        }
-        return res;
+        return res && res.busy ? retry(n, res) : res;
+      }, function (err) {
+        if (!err || !err.retryable) throw err;
+        return retry(n, err);
       });
     }
     return attempt(0);
@@ -452,7 +485,8 @@
 
   // "Retire até sáb, 17/10, às 18h" ou, se a retirada ainda não começou, "Retire de dom, 18/10, às 11h, até ter, 20/10, às 18h"
   function pickupText(r) {
-    return 'Retire ' + (r.pickupFrom ? 'de ' + r.pickupFrom + ', ' : '') + 'até ' + r.deadline;
+    var from = r.pickupFrom && new Date() < DELIVERY_START ? 'de ' + r.pickupFrom + ', ' : '';
+    return 'Retire ' + from + 'até ' + r.deadline;
   }
 
   function shareText(r) {
@@ -462,7 +496,7 @@
       'Pagamento e retirada SOMENTE no Comitê da Direita Pernambucana\n' +
       'Av. Herculano Bandeira, 766 — Pina, Recife/PE\n' +
       (r.deadline ? pickupText(r) + '.\n' : '') +
-      'Das 9h às 18h, a partir de domingo, 18/10, às 11h. Não há entregas.\n' + MAPS_URL;
+      'Das 9h às 18h. Não há entregas.\n' + MAPS_URL;
   }
 
   function buildReceipt(r) {
@@ -517,7 +551,7 @@
     x.fillText('Comitê da Direita Pernambucana', W / 2, y + 140);
     x.font = '600 34px ' + B;
     x.fillText('Av. Herculano Bandeira, 766 — Pina, Recife/PE', W / 2, y + 190);
-    x.fillText('Das 9h às 18h, a partir de 18/10, às 11h', W / 2, y + 236);
+    x.fillText('Das 9h às 18h', W / 2, y + 236);
     if (r.deadline) {
       x.fillStyle = '#032814'; roundRect(x, W / 2 - 440, y + 262, 880, 60, 30); x.fill();
       x.fillStyle = '#FFD21F'; x.font = '800 32px ' + B;
