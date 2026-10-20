@@ -227,7 +227,7 @@
   /* ---------- Envio ---------- */
   form.addEventListener('submit', function (e) {
     e.preventDefault();
-    if (submitEl.classList.contains('is-loading') || coolTimer) return;
+    if (submitEl.classList.contains('is-loading')) return;
     showFormError('');
     var problem = check(true);
     if (problem) { guide(problem); return; }
@@ -242,22 +242,11 @@
       website: $('website').value,
     };
 
-    // Mesmo id em todos os reenvios desta reserva: se a primeira tentativa já gravou, o servidor
-    // devolve a mesma reserva em vez de dizer que o WhatsApp já tem uma.
-    var sig = JSON.stringify(payload);
-    if (!pending || pending.sig !== sig) pending = { sig: sig, rid: newId() };
-    payload.rid = pending.rid;
-
     setLoading(true);
     sendWithRetry(payload)
       .then(function (res) {
         if (res && res.stock) { stock = res.stock; render(); }
-        if (!res || !res.ok) {
-          var e = new Error((res && res.error) || 'Não foi possível concluir sua reserva.');
-          e.busy = !res || !!res.busy;
-          throw e;
-        }
-        pending = null;
+        if (!res || !res.ok) throw new Error((res && res.error) || 'Não foi possível concluir sua reserva.');
         res.phone = payload.whatsapp; // fica só neste celular, para o "Mandar no meu WhatsApp"
         saveLocal(res);
         resetForm();
@@ -265,14 +254,13 @@
         loadStock();
       })
       .catch(function (err) {
-        var busy = !err || err.retryable || err.busy;
-        var msg = busy ? 'Muita gente reservando agora. Espere uns segundos e toque em Confirmar reserva de novo.' : err.message;
+        var msg = err && err.message && !/fetch|network|Load failed|JSON/i.test(err.message)
+          ? err.message
+          : 'Sem conexão com o sistema de reservas. Confira sua internet e toque em Confirmar reserva de novo.';
         showFormError(msg);
         focusOn(formError);
-        if (busy) { cooldown(20); return; }
-        setLoading(false);
       })
-      .then(function () { if (!coolTimer) setLoading(false); });
+      .finally(function () { setLoading(false); });
   });
 
   function send(payload) {
@@ -291,71 +279,28 @@
       });
     }
     // text/plain evita o preflight CORS, que o Apps Script não suporta.
-    var ctrl = window.AbortController ? new AbortController() : null;
-    var timer = ctrl && setTimeout(function () { ctrl.abort(); }, SEND_TIMEOUT);
     return fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
       redirect: 'follow',
-      signal: ctrl ? ctrl.signal : undefined,
-    }).then(function (r) { return r.json(); })
-      .catch(function (err) { // sem resposta, demorou demais ou o Google devolveu página de erro
-        var e = new Error((err && err.message) || 'network');
-        e.retryable = true;
-        throw e;
-      })
-      .finally(function () { clearTimeout(timer); });
+    }).then(function (r) { return r.json(); });
   }
 
-  // Congestionamento: servidor "ocupado", conexão caiu, demorou demais ou o Google recusou por excesso
-  // de acessos. Tenta de novo sozinho, esperando cada vez mais (com um sorteio, para que nem todo
-  // mundo reenvie no mesmo segundo). Reenviar é seguro: o id da reserva evita reserva em dobro.
-  var SEND_TIMEOUT = 40000;
-  var RETRY_WAITS = [4000, 10000]; // poucas tentativas: cada uma ocupa o limite de execuções do Google
-  var pending = null;
-
-  function newId() {
-    var a = 'abcdefghijklmnopqrstuvwxyz0123456789', id = '';
-    var rnd = window.crypto && crypto.getRandomValues ? crypto.getRandomValues(new Uint8Array(20)) : null;
-    for (var i = 0; i < 20; i++) id += a[(rnd ? rnd[i] : Math.floor(Math.random() * 256)) % a.length];
-    return id;
-  }
-
+  // Se o servidor responder "ocupado" (nada foi gravado), espera e tenta de novo, até 2 vezes.
+  // Em falha de rede não reenvia: a reserva pode ter sido gravada.
   function sendWithRetry(payload) {
-    var label = submitEl.querySelector('.btn__text');
-    function retry(n, last) {
-      if (n >= RETRY_WAITS.length) {
-        if (last instanceof Error) throw last;
-        return last;
-      }
-      label.textContent = 'Reservando, aguarde…';
-      var wait = RETRY_WAITS[n] * (0.7 + Math.random() * 0.6);
-      return new Promise(function (r) { setTimeout(r, wait); }).then(function () { return attempt(n + 1); });
-    }
+    var waits = [2500, 5000];
     function attempt(n) {
       return send(payload).then(function (res) {
-        return res && res.busy ? retry(n, res) : res;
-      }, function (err) {
-        if (!err || !err.retryable) throw err;
-        return retry(n, err);
+        if (res && res.busy && n < waits.length) {
+          submitEl.querySelector('.btn__text').textContent = 'Muita gente reservando agora, tentando de novo…';
+          return new Promise(function (r) { setTimeout(r, waits[n]); }).then(function () { return attempt(n + 1); });
+        }
+        return res;
       });
     }
     return attempt(0);
-  }
-
-  // Depois de falhar por congestionamento, o botão espera um pouco: clicar sem parar só piora a fila.
-  var coolTimer = null;
-  function cooldown(sec) {
-    submitEl.classList.remove('is-loading');
-    submitEl.disabled = true;
-    var label = submitEl.querySelector('.btn__text');
-    (function tick() {
-      if (sec <= 0) { coolTimer = null; setLoading(false); return; }
-      label.textContent = 'Tente de novo em ' + sec + 's';
-      sec--;
-      coolTimer = setTimeout(tick, 1000);
-    })();
   }
 
   function setLoading(on) {
