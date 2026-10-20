@@ -17,6 +17,12 @@
  * Vencida → Status "Expirado" (automático, de hora em hora), as camisas voltam ao estoque e a
  * pessoa pode reservar de novo.
  *
+ * RESERVAS PELO SUPABASE (desde 20/10): o site reserva direto no banco de dados Supabase, que
+ * aguenta milhares de acessos. A cada 1 minuto, `sincronizarSupabase` traz as reservas novas para
+ * a aba Reservas e devolve ao Supabase o saldo real (estoque − reservas ativas da planilha), os
+ * WhatsApps com reserva ativa e se as reservas estão abertas (caixa da aba Configurações).
+ * Para ligar: rode `conectarSupabase` uma vez.
+ *
  * INSTALAÇÃO (uma vez): cole este código, rode `ativar` e depois publique uma nova versão
  * em Implantar → Gerenciar implantações (a URL do site não muda).
  */
@@ -72,7 +78,12 @@ function doGet() {
   return json_({ ok: true, open: s.open, price: s.price, max: s.max, stock: remaining_(s.stock) });
 }
 
+// O site agora reserva pelo Supabase. Páginas antigas, ainda abertas, caem aqui: pede para recarregar.
 function doPost(e) {
+  return json_({ ok: false, error: 'O site foi atualizado. Recarregue a página e toque em Confirmar reserva de novo.' });
+}
+
+function doPostPlanilha_(e) {
   try {
     const s = settings_();
     if (!s.open) return json_({ ok: false, error: 'As reservas estão encerradas no momento.' });
@@ -792,4 +803,92 @@ function safe_(s) {
 
 function formatPhone_(p) {
   return '(' + p.slice(0, 2) + ') ' + p.slice(2, 7) + '-' + p.slice(7);
+}
+
+/* ------------------------------------------------------------------ */
+/* Supabase: o site reserva lá; a planilha recebe a cada 1 minuto     */
+/* ------------------------------------------------------------------ */
+
+const SUPA = {
+  URL: 'https://mmvcveyfvysrzoxcvzxd.supabase.co/rest/v1/rpc/',
+  KEY: 'sb_publishable_UXy2eIUyoG-BW8COyuhSmg_LGBvxc4S',
+  TOKEN: '4d7d137b1647a356dd2bea46fc61e7b9a98444c2074fd77d', // senha da planilha no Supabase (não divulgue)
+};
+
+function supa_(fn, body) {
+  const res = UrlFetchApp.fetch(SUPA.URL + fn, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { apikey: SUPA.KEY },
+    payload: JSON.stringify(body),
+    muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() >= 300) {
+    throw new Error('Supabase ' + fn + ': ' + res.getResponseCode() + ' ' + res.getContentText().slice(0, 300));
+  }
+  return JSON.parse(res.getContentText());
+}
+
+/** RODE UMA VEZ: liga a planilha ao Supabase (gatilho de 1 em 1 minuto) e já sincroniza. */
+function conectarSupabase() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => ['sincronizarSupabase', 'sincronizar'].indexOf(t.getHandlerFunction()) !== -1)
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('sincronizarSupabase').timeBased().everyMinutes(1).create();
+  sincronizarSupabase();
+}
+
+/** De 1 em 1 minuto: traz as reservas novas para a aba Reservas e manda o saldo real ao Supabase. */
+function sincronizarSupabase() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return;
+  try {
+    const novas = supa_('puxar', { p_token: SUPA.TOKEN });
+    const rs = sheet_(APP.SHEETS.RESERVAS);
+    const last = rs.getLastRow();
+    let rows = last >= 2 ? rs.getRange(2, 1, last - 1, NCOLS).getValues() : [];
+    const existing = new Set(rows.map(r => r[COL.CODIGO - 1]));
+
+    const add = novas.filter(n => !existing.has(n.codigo)).map(n => [
+      n.codigo, n.criado_em, safe_(n.nome), formatPhone_(n.whatsapp),
+      ...APP.SIZES.map(sz => (sz === n.tamanho ? 1 : '')),
+      1, Number(n.total), APP.STATUS.RESERVADO, '', '', '', n.prazo,
+    ]);
+    if (add.length) {
+      const first = rs.getLastRow() + 1;
+      if (first > 2) rs.getRange(first - 1, 1, 1, NCOLS).copyFormatToRange(rs, 1, NCOLS, first, first + add.length - 1);
+      rs.getRange(first, COL.WHATS, add.length, 1).setNumberFormat('@');
+      rs.getRange(first, 1, add.length, NCOLS).setValues(add);
+      SpreadsheetApp.flush();
+      rows = rows.concat(add);
+    }
+
+    // Saldo real = estoque da Configurações − camisas em reservas ativas (entregues ou no prazo)
+    const s = settings_();
+    const now = new Date();
+    const used = {};
+    APP.SIZES.forEach(sz => { used[sz] = 0; });
+    const whats = new Set();
+    rows.forEach(r => {
+      if (!isActive_(r, now)) return;
+      APP.SIZES.forEach(sz => { used[sz] += Number(r[COL[sz] - 1]) || 0; });
+      const w = String(r[COL.WHATS - 1]).replace(/\D/g, '').slice(-11);
+      if (w) whats.add(w);
+    });
+    const saldo = {};
+    APP.SIZES.forEach(sz => { saldo[sz] = Math.max(0, (s.stock[sz] || 0) - used[sz]); });
+
+    const res = supa_('ajustar', {
+      p_token: SUPA.TOKEN,
+      p_gravadas: novas.map(n => n.codigo),
+      p_saldo: saldo,
+      p_whats: Array.from(whats),
+      p_codigos: rows.map(r => r[COL.CODIGO - 1]).filter(Boolean),
+      p_aberto: s.open,
+      p_preco: s.price,
+    });
+    Logger.log('Reservas novas na planilha: %s. No site agora: %s (aberto: %s)', add.length, JSON.stringify(res.stock), res.open);
+  } finally {
+    lock.releaseLock();
+  }
 }

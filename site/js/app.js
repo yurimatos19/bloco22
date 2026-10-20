@@ -7,7 +7,10 @@
   var ADDRESS = 'Avenida Herculano Bandeira, 766, Pina, Recife - PE';
   var MAPS_URL = 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(ADDRESS);
   var API_URL = ((window.BLOCO22_CONFIG || {}).API_URL || '').trim();
-  var DEMO = !API_URL;
+  var CFG = window.BLOCO22_CONFIG || {};
+  var SUPA_URL = String(CFG.SUPABASE_URL || '').replace(/\/$/, '');
+  var SUPA_KEY = String(CFG.SUPABASE_KEY || '');
+  var DEMO = !SUPA_URL;
   var STORAGE_KEY = 'bloco22:ultima-reserva';
 
   var stock = null; // saldo por tamanho vindo da planilha, ex.: { P: 150, M: 250, ... }
@@ -80,7 +83,7 @@
   function loadStock() {
     if (DEMO) return;
     if (PAUSED) return;
-    fetch(API_URL).then(function (r) { return r.json(); }).then(function (d) {
+    rpc('saldo', {}).then(function (d) {
       if (!d) return;
       closed = d.open === false || !!PAUSED;
       if (d.stock) stock = d.stock;
@@ -246,11 +249,17 @@
       website: $('website').value,
     };
 
+    // Mesmo id nos reenvios desta reserva: se uma tentativa já gravou, volta a mesma reserva
+    var sig = JSON.stringify(payload);
+    if (!pending || pending.sig !== sig) pending = { sig: sig, rid: newId() };
+    payload.rid = pending.rid;
+
     setLoading(true);
     sendWithRetry(payload)
       .then(function (res) {
         if (res && res.stock) { stock = res.stock; render(); }
         if (!res || !res.ok) throw new Error((res && res.error) || 'Não foi possível concluir sua reserva.');
+        pending = null;
         res.phone = payload.whatsapp; // fica só neste celular, para o "Mandar no meu WhatsApp"
         saveLocal(res);
         resetForm();
@@ -258,7 +267,7 @@
         loadStock();
       })
       .catch(function (err) {
-        var msg = err && err.message && !/fetch|network|Load failed|JSON/i.test(err.message)
+        var msg = err && err.message && !err.retryable && !/fetch|network|Load failed|JSON/i.test(err.message)
           ? err.message
           : 'Sem conexão com o sistema de reservas. Confira sua internet e toque em Confirmar reserva de novo.';
         showFormError(msg);
@@ -282,26 +291,69 @@
         }, 800);
       });
     }
-    // text/plain evita o preflight CORS, que o Apps Script não suporta.
-    return fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
-      redirect: 'follow',
-    }).then(function (r) { return r.json(); });
+    if (payload.website) return Promise.resolve({ ok: false, error: 'Requisição inválida.' });
+    var size = Object.keys(payload.items)[0];
+    return rpc('reservar', {
+      p_nome: payload.name,
+      p_whatsapp: payload.whatsapp,
+      p_tamanho: size,
+      p_ciente: payload.consent,
+      p_rid: payload.rid,
+    }).then(function (r) {
+      if (!r || !r.ok) return r;
+      return {
+        ok: true, code: r.code, name: r.name, qty: 1, total: Number(r.total),
+        items: [{ size: r.size, qty: 1 }],
+        createdAt: r.createdAt, deadlineAt: r.deadlineAt, deadline: deadlineLabel(r.deadlineAt), pickupFrom: '',
+      };
+    });
   }
+
+  // Chamada ao Supabase. Erro de rede ou servidor sobrecarregado → retryable (pode tentar de novo:
+  // o id da reserva evita reserva em dobro).
+  function rpc(fn, body) {
+    return fetch(SUPA_URL + '/rest/v1/rpc/' + fn, {
+      method: 'POST',
+      headers: { apikey: SUPA_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      if (!r.ok) {
+        var e = new Error('Erro ' + r.status);
+        e.retryable = r.status >= 500 || r.status === 429;
+        throw e;
+      }
+      return r.json();
+    }, function (err) {
+      var e = new Error((err && err.message) || 'network');
+      e.retryable = true;
+      throw e;
+    });
+  }
+
+  // "qua, 21/10, às 18h" no horário de Recife (UTC−3)
+  function deadlineLabel(iso) {
+    var d = new Date(new Date(iso).getTime() - 3 * 3600 * 1000);
+    var wd = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][d.getUTCDay()];
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return wd + ', ' + p(d.getUTCDate()) + '/' + p(d.getUTCMonth() + 1) + ', às ' + d.getUTCHours() + 'h';
+  }
+
+  function newId() {
+    var a = 'abcdefghijklmnopqrstuvwxyz0123456789', id = '';
+    var rnd = window.crypto && crypto.getRandomValues ? crypto.getRandomValues(new Uint8Array(20)) : null;
+    for (var i = 0; i < 20; i++) id += a[(rnd ? rnd[i] : Math.floor(Math.random() * 256)) % a.length];
+    return id;
+  }
+  var pending = null;
 
   // Se o servidor responder "ocupado" (nada foi gravado), espera e tenta de novo, até 2 vezes.
   // Em falha de rede não reenvia: a reserva pode ter sido gravada.
   function sendWithRetry(payload) {
     var waits = [2500, 5000];
     function attempt(n) {
-      return send(payload).then(function (res) {
-        if (res && res.busy && n < waits.length) {
-          submitEl.querySelector('.btn__text').textContent = 'Muita gente reservando agora, tentando de novo…';
-          return new Promise(function (r) { setTimeout(r, waits[n]); }).then(function () { return attempt(n + 1); });
-        }
-        return res;
+      return send(payload).catch(function (err) {
+        if (!err.retryable || n >= waits.length) throw err;
+        return new Promise(function (r) { setTimeout(r, waits[n]); }).then(function () { return attempt(n + 1); });
       });
     }
     return attempt(0);
