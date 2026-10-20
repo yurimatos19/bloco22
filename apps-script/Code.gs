@@ -68,27 +68,24 @@ const NCOLS = HEADERS.length;
 /* Endpoints do site                                                  */
 /* ------------------------------------------------------------------ */
 
-// Muita gente abrindo o site ao mesmo tempo: a resposta fica guardada por alguns segundos.
-// Uma reserva nova apaga o guardado na hora.
-const STATUS_CACHE_KEY = 'status_v2';
-const STATUS_CACHE_SEC = 10;
+// Muita gente abrindo o site ao mesmo tempo: o saldo fica guardado por alguns segundos, para não
+// ler a planilha inteira a cada visita. Uma reserva nova apaga o guardado na hora.
+const STATUS_CACHE_KEY = 'status_v1';
+const STATUS_CACHE_SEC = 20;
 
 function doGet() {
   const cache = CacheService.getScriptCache();
   const hit = cache.get(STATUS_CACHE_KEY);
   if (hit) return text_(hit);
-  const s = settingsCached_();
-  const used = fastState_().used;
-  const left = {};
-  APP.SIZES.forEach(sz => { left[sz] = Math.max(0, (s.stock[sz] || 0) - (used[sz] || 0)); });
-  const body = JSON.stringify({ ok: true, open: s.open, price: s.price, max: s.max, stock: left });
+  const s = settings_();
+  const body = JSON.stringify({ ok: true, open: s.open, price: s.price, max: s.max, stock: remaining_(s.stock) });
   cache.put(STATUS_CACHE_KEY, body, STATUS_CACHE_SEC);
   return text_(body);
 }
 
 function doPost(e) {
   try {
-    const s = settingsCached_();
+    const s = settings_();
     if (!s.open) return json_({ ok: false, error: 'As reservas estão encerradas no momento.' });
 
     let data;
@@ -115,23 +112,22 @@ function doPost(e) {
       return json_({ ok: false, error: 'Muitas reservas para este WhatsApp em pouco tempo. Tente novamente mais tarde.' });
     }
 
-    // Fila rápida: dentro da trava só conferimos e anotamos o saldo e o WhatsApp no registro do
-    // script (milésimos de segundo). A planilha é gravada depois, fora da fila, várias ao mesmo
-    // tempo. Antes a fila lia a planilha inteira a cada reserva e só andava 1 a cada ~3,5 s.
+    // Uma reserva por vez (evita estoque a mais e código repetido). Se a fila estiver longa,
+    // responde "ocupado" sem gravar nada, e o site tenta de novo sozinho.
     const lock = LockService.getScriptLock();
-    if (!lock.tryLock(10000)) {
+    if (!lock.tryLock(15000)) {
       return json_({ ok: false, busy: true, error: 'Muita gente reservando agora. Tente de novo em alguns segundos.' });
     }
-    let claim;
     try {
       const again = rid && cache.get(rid); // gravada enquanto este envio esperava na fila
       if (again) return text_(again);
 
-      const props = PropertiesService.getScriptProperties();
-      const st = fastState_(props);
+      // Uma leitura só da aba Reservas para o limite por pessoa, o saldo e o código novo.
+      const rs = sheet_(APP.SHEETS.RESERVAS);
+      const rows = allRows_(rs);
 
-      // Limite por pessoa: soma o que esse WhatsApp já tem em reservas ativas.
-      const already = Number(props.getProperty('ph_' + v.phone)) || 0;
+      // Limite por pessoa: soma o que esse WhatsApp já tem em reservas não canceladas.
+      const already = shirtsByPhone_(v.phone, rows);
       if (already + v.qty > s.max) {
         return json_({
           ok: false,
@@ -142,47 +138,28 @@ function doPost(e) {
         });
       }
 
-      // Estoque: o que está na Configurações menos as camisas em reservas ativas.
-      const left = {};
-      APP.SIZES.forEach(sz => { left[sz] = Math.max(0, (s.stock[sz] || 0) - (st.used[sz] || 0)); });
+      // Confere o estoque dentro da trava, para reservas simultâneas não passarem do limite.
+      const left = remaining_(s.stock, rows);
       for (const size of Object.keys(v.items)) {
         if (v.items[size] > left[size]) {
           return json_({
             ok: false,
             error: left[size] === 0
-              ? 'O tamanho ' + size + ' esgotou. Escolha outro tamanho.'
-              : 'Só ' + (left[size] === 1 ? 'resta 1 camisa' : 'restam ' + left[size] + ' camisas') + ' no tamanho ' + size + '. Escolha outro tamanho.',
+              ? 'O tamanho ' + size + ' esgotou. Remova do carrinho e escolha outro tamanho.'
+              : 'Só ' + (left[size] === 1 ? 'resta 1 camisa' : 'restam ' + left[size] + ' camisas') + ' no tamanho ' + size + '. Ajuste o carrinho e tente de novo.',
             stock: left,
           });
         }
       }
-
-      const code = uniqueCode_(c => props.getProperty('c_' + c) !== null);
-      Object.keys(v.items).forEach(sz => { st.used[sz] = (st.used[sz] || 0) + v.items[sz]; });
-      const upd = { st: JSON.stringify(st) };
-      upd['ph_' + v.phone] = String(already + v.qty);
-      upd['c_' + code] = '1';
-      upd['r_' + code] = JSON.stringify([v.phone, v.items, Date.now()]); // ainda pode não estar na planilha
-      props.setProperties(upd);
-      claim = { code: code, already: already };
+      const reservation = saveReservation_(v, s.price, rs, rows);
+      countReservation_(v.phone);
+      const body = JSON.stringify(Object.assign({ ok: true }, reservation));
+      if (rid) cache.put(rid, body, 21600);
+      cache.remove(STATUS_CACHE_KEY);
+      return text_(body);
     } finally {
       lock.releaseLock();
     }
-
-    // Grava na planilha fora da fila (appendRow é seguro com várias gravações ao mesmo tempo).
-    let reservation;
-    try {
-      reservation = saveReservation_(v, s.price, claim.code);
-    } catch (err) {
-      undoClaim_(v, claim);
-      console.error(err);
-      return json_({ ok: false, busy: true, error: 'Muita gente reservando agora. Tente de novo em alguns segundos.' });
-    }
-    countReservation_(v.phone);
-    const body = JSON.stringify(Object.assign({ ok: true }, reservation));
-    if (rid) cache.put(rid, body, 21600);
-    cache.remove(STATUS_CACHE_KEY);
-    return text_(body);
   } catch (err) {
     console.error(err);
     return json_({
@@ -197,18 +174,22 @@ function doPost(e) {
 /* Reservas                                                           */
 /* ------------------------------------------------------------------ */
 
-// Grava a linha da reserva. As colunas já vêm formatadas (ativar formata as linhas vazias).
-function saveReservation_(v, price, code) {
-  const sh = sheet_(APP.SHEETS.RESERVAS);
+function saveReservation_(v, price, sh, rows) {
+  sh = sh || sheet_(APP.SHEETS.RESERVAS);
+  const code = uniqueCode_(rows || allRows_(sh));
   const now = new Date();
   const total = Math.round(v.qty * price * 100) / 100;
   const deadline = deadline_(now);
 
-  sh.appendRow([
+  const row = sh.getLastRow() + 1;
+  // Formato copiado da linha de cima numa chamada só (antes eram 7 chamadas por reserva)
+  if (row > 2) sh.getRange(row - 1, 1, 1, NCOLS).copyFormatToRange(sh, 1, NCOLS, row, row);
+  else sh.getRange(row, COL.WHATS).setNumberFormat('@');
+  sh.getRange(row, 1, 1, NCOLS).setValues([[
     code, horaRecife_(now), safe_(v.name), formatPhone_(v.phone),
     ...APP.SIZES.map(sz => v.items[sz] || ''),
     v.qty, total, APP.STATUS.RESERVADO, '', '', '', deadline.sheet,
-  ]);
+  ]]);
   SpreadsheetApp.flush();
 
   return {
@@ -335,124 +316,6 @@ function remaining_(stock, rows) {
   return left;
 }
 
-/* ------------------------------------------------------------------ */
-/* Registro rápido (Propriedades do script)                           */
-/* ------------------------------------------------------------------ */
-// st          → {"used":{"P":..}, "at": ms}  camisas em reservas ativas (entregues ou no prazo)
-// ph_<whats>  → camisas ativas desse WhatsApp
-// c_<código>  → códigos já usados
-// r_<código>  → reservas recentes que talvez ainda não estejam na planilha
-// A planilha continua sendo a fonte da verdade: `sincronizar` (gatilho de 1 em 1 minuto) refaz o
-// registro a partir dela. Assim, cancelar ou vencer uma reserva devolve a camisa em até 1 minuto.
-const FAST_KEYS = /^(st|ph_.*|c_.*|r_.*)$/;
-const RECENT_MAX_MS = 10 * 60 * 1000;
-
-function fastState_(props) {
-  props = props || PropertiesService.getScriptProperties();
-  const raw = props.getProperty('st');
-  const st = raw ? JSON.parse(raw) : null;
-  if (st && Date.now() - st.at < 5 * 60 * 1000) return st;
-  // Registro vazio ou velho (gatilho parado): refaz agora, a partir da planilha, com a trava
-  // (sem ela, uma reserva feita no meio da sincronização poderia ser apagada do registro).
-  const lock = LockService.getScriptLock();
-  if (lock.hasLock()) return sincronizar_(props);
-  if (lock.tryLock(5000)) {
-    try { return sincronizar_(props); } finally { lock.releaseLock(); }
-  }
-  const s = settings_();
-  const left = remaining_(s.stock);
-  const used = {};
-  APP.SIZES.forEach(sz => { used[sz] = (s.stock[sz] || 0) - left[sz]; });
-  return { used: used, at: Date.now() };
-}
-
-/** Gatilho de 1 em 1 minuto (instalado por ativar). Também pode ser rodado à mão. */
-function sincronizar() {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(20000)) return;
-  try {
-    sincronizar_();
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-// Refaz o registro a partir da aba Reservas. Chame com a trava pega.
-function sincronizar_(props) {
-  props = props || PropertiesService.getScriptProperties();
-  const now = new Date();
-  const used = {};
-  APP.SIZES.forEach(sz => { used[sz] = 0; });
-  const out = {};
-  const codes = new Set();
-  allRows_().forEach(r => {
-    const code = r[COL.CODIGO - 1];
-    if (!code) return;
-    codes.add(code);
-    out['c_' + code] = '1';
-    if (!isActive_(r, now)) return;
-    APP.SIZES.forEach(sz => { used[sz] += Number(r[COL[sz] - 1]) || 0; });
-    const ph = String(r[COL.WHATS - 1]).replace(/\D/g, '').slice(-11);
-    if (ph) out['ph_' + ph] = String((Number(out['ph_' + ph]) || 0) + (Number(r[COL.QTD - 1]) || 0));
-  });
-
-  const all = props.getProperties();
-  Object.keys(all).forEach(k => {
-    if (!FAST_KEYS.test(k)) { out[k] = all[k]; return; } // outras configurações do script ficam
-    if (k.indexOf('r_') !== 0) return;
-    const code = k.slice(2);
-    let rec;
-    try { rec = JSON.parse(all[k]); } catch (e) { return; }
-    if (codes.has(code) || Date.now() - rec[2] > RECENT_MAX_MS) return; // já está na planilha (ou falhou)
-    // Reservada há pouco e ainda gravando na planilha: continua contando
-    out[k] = all[k];
-    out['c_' + code] = '1';
-    let q = 0;
-    Object.keys(rec[1]).forEach(sz => { used[sz] = (used[sz] || 0) + rec[1][sz]; q += rec[1][sz]; });
-    out['ph_' + rec[0]] = String((Number(out['ph_' + rec[0]]) || 0) + q);
-  });
-
-  const st = { used: used, at: Date.now() };
-  out.st = JSON.stringify(st);
-  props.setProperties(out, true);
-  CacheService.getScriptCache().remove(STATUS_CACHE_KEY);
-  return st;
-}
-
-// A planilha não aceitou a linha: devolve a camisa e o WhatsApp no registro.
-function undoClaim_(v, claim) {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) return; // o sincronizar corrige em até 1 minuto
-  try {
-    const props = PropertiesService.getScriptProperties();
-    const st = JSON.parse(props.getProperty('st'));
-    Object.keys(v.items).forEach(sz => { st.used[sz] = Math.max(0, (st.used[sz] || 0) - v.items[sz]); });
-    props.setProperty('st', JSON.stringify(st));
-    props.setProperty('ph_' + v.phone, String(claim.already));
-    props.deleteProperty('r_' + claim.code);
-    props.deleteProperty('c_' + claim.code);
-  } catch (e) {
-    console.error(e);
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-// Configurações guardadas por 30 s (ler a aba a cada reserva é lento).
-function settingsCached_() {
-  const cache = CacheService.getScriptCache();
-  const hit = cache.get('cfg_v1');
-  let s;
-  if (hit) {
-    s = JSON.parse(hit);
-  } else {
-    s = settings_();
-    cache.put('cfg_v1', JSON.stringify(s), 30);
-  }
-  s.open = s.open && !pickupOver_(new Date());
-  return s;
-}
-
 // Todas as linhas da aba Reservas (sem o cabeçalho)
 function allRows_(sh) {
   sh = sh || sheet_(APP.SHEETS.RESERVAS);
@@ -460,15 +323,15 @@ function allRows_(sh) {
   return last >= 2 ? sh.getRange(2, 1, last - 1, NCOLS).getValues() : [];
 }
 
-// taken(código) → true se o código já existe
-function uniqueCode_(taken) {
+function uniqueCode_(rows) {
+  const existing = new Set(rows.map(r => r[COL.CODIGO - 1]));
   for (let i = 0; i < 50; i++) {
     let c = APP.CODE_PREFIX;
     const hex = Utilities.getUuid().replace(/-/g, '');
     for (let j = 0; j < APP.CODE_LENGTH; j++) {
       c += APP.CODE_ALPHABET[parseInt(hex.substr(j * 2, 2), 16) % APP.CODE_ALPHABET.length];
     }
-    if (!taken(c)) return c;
+    if (!existing.has(c)) return c;
   }
   throw new Error('Falha ao gerar código único');
 }
@@ -722,16 +585,6 @@ function ativarConteudo_(ss) {
   rs.getRange(1, COL.OBS).copyFormatToRange(rs, COL.PRAZO, COL.PRAZO, 1, 1);
   rs.getRange(2, COL.PRAZO, rs.getMaxRows() - 1, 1).setNumberFormat('dd/MM/yyyy HH:mm');
   rs.setColumnWidth(COL.PRAZO, 140);
-  // Linhas vazias já formatadas: a reserva nova só grava os valores (mais rápido)
-  const spare = rs.getLastRow() + 3000 - rs.getMaxRows();
-  if (spare > 0) rs.insertRowsAfter(rs.getMaxRows(), spare);
-  const n = rs.getMaxRows() - 1;
-  rs.getRange(2, COL.CODIGO, n, 1).setFontWeight('bold');
-  rs.getRange(2, COL.DATA, n, 1).setNumberFormat('dd/MM/yyyy HH:mm');
-  rs.getRange(2, COL.WHATS, n, 1).setNumberFormat('@');
-  rs.getRange(2, COL.P, n, 5).setHorizontalAlignment('center');
-  rs.getRange(2, COL.TOTAL, n, 1).setNumberFormat('"R$" #,##0.00');
-  rs.getRange(2, COL.RETIRADA, n, 1).setNumberFormat('dd/MM/yyyy HH:mm');
   const statusCol = rs.getRange(2, COL.STATUS, rs.getMaxRows() - 1, 1);
   statusCol.setDataValidation(SpreadsheetApp.newDataValidation()
     .requireValueInList([APP.STATUS.RESERVADO, APP.STATUS.ENTREGUE, APP.STATUS.CANCELADO, APP.STATUS.EXPIRADO], true)
@@ -782,9 +635,7 @@ function ativarConteudo_(ss) {
 
   installTrigger_(ss.getId());
   installHourlyTrigger_();
-  installSyncTrigger_();
-  CacheService.getScriptCache().removeAll(['cfg_v1', STATUS_CACHE_KEY]);
-  sincronizar();
+  limparFilaRapida_();
 }
 
 // Garante as abas Balcão 1, 2 e 3: a antiga "Balcão" vira "Balcão 1" e as outras são cópias dela.
@@ -898,12 +749,20 @@ function installHourlyTrigger_() {
   ScriptApp.newTrigger('expirarReservas').timeBased().everyHours(1).create();
 }
 
-function installSyncTrigger_() {
+// Remove o gatilho e o registro da versão "fila rápida" (desfeita em 20/10).
+function limparFilaRapida_() {
   ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'sincronizar')
     .forEach(t => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger('sincronizar').timeBased().everyMinutes(1).create();
+  const props = PropertiesService.getScriptProperties();
+  const keep = {};
+  const all = props.getProperties();
+  Object.keys(all).forEach(k => { if (!/^(st|ph_.*|c_.*|r_.*)$/.test(k)) keep[k] = all[k]; });
+  props.setProperties(keep, true);
 }
+
+// Se o gatilho antigo ainda rodar antes de ativar, não faz nada.
+function sincronizar() {}
 
 function installTrigger_(id) {
   ScriptApp.getProjectTriggers()
@@ -918,10 +777,7 @@ function installTrigger_(id) {
 
 /** Cria uma reserva de teste. Depois mude o Status dela para Cancelado (ou apague a linha). */
 function testarReserva() {
-  const props = PropertiesService.getScriptProperties();
-  const code = uniqueCode_(c => props.getProperty('c_' + c) !== null);
-  const res = saveReservation_({ name: 'Teste do Sistema', phone: '81999990000', items: { M: 2, GG: 1 }, qty: 3 }, settings_().price, code);
-  sincronizar();
+  const res = saveReservation_({ name: 'Teste do Sistema', phone: '81999990000', items: { M: 2, GG: 1 }, qty: 3 }, settings_().price);
   Logger.log(JSON.stringify(res));
 }
 

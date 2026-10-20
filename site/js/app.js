@@ -262,7 +262,7 @@
       })
       .catch(function (err) {
         var msg = err && !err.retryable && err.message ? err.message
-          : 'Muita gente reservando ao mesmo tempo e sua reserva ainda não foi confirmada. Espere um minuto e toque em Confirmar reserva de novo. Se ela já tiver sido gravada, o site mostra o seu código, sem reservar duas vezes.';
+          : 'Não deu para confirmar sua reserva agora. Toque em Confirmar reserva de novo.';
         showFormError(msg);
         focusOn(formError);
       })
@@ -323,7 +323,7 @@
         if (last instanceof Error) throw last;
         return last;
       }
-      label.textContent = 'Muita gente reservando agora. Tentando de novo (' + (n + 2) + ' de ' + (RETRY_WAITS.length + 1) + ')…';
+      label.textContent = 'Reservando, aguarde…';
       var wait = RETRY_WAITS[n] * (0.7 + Math.random() * 0.6);
       return new Promise(function (r) { setTimeout(r, wait); }).then(function () { return attempt(n + 1); });
     }
