@@ -11,7 +11,9 @@
   var STORAGE_KEY = 'bloco22:ultima-reserva';
 
   var stock = null; // saldo por tamanho vindo da planilha, ex.: { P: 150, M: 250, ... }
-  var closed = false; // reservas encerradas pelo servidor (RESERVATIONS_OPEN = false)
+  var PAUSED = String((window.BLOCO22_CONFIG || {}).PAUSED || '').trim();
+  var closed = !!PAUSED; // reservas encerradas pelo servidor (RESERVATIONS_OPEN = false) ou pausadas
+  var CLOSED_TEXT = PAUSED || 'As reservas pelo site foram encerradas.';
   var selected = null;
 
   var $ = function (id) { return document.getElementById(id); };
@@ -51,6 +53,7 @@
   }
 
   if (DEMO) $('demo-banner').hidden = false;
+  if (PAUSED) { $('pause-banner').textContent = PAUSED; $('pause-banner').hidden = false; }
 
   var DELIVERY_START = new Date('2026-10-18T11:00:00-03:00');
   document.querySelectorAll('.js-directions').forEach(function (a) { a.href = MAPS_URL; });
@@ -76,9 +79,10 @@
 
   function loadStock() {
     if (DEMO) return;
+    if (PAUSED) return;
     fetch(API_URL).then(function (r) { return r.json(); }).then(function (d) {
       if (!d) return;
-      closed = d.open === false;
+      closed = d.open === false || !!PAUSED;
       if (d.stock) stock = d.stock;
       render();
     }).catch(function () { /* sem saldo: o servidor confere na hora de reservar */ });
@@ -123,13 +127,13 @@
     });
 
     var lim = $('limit-label');
-    lim.textContent = closed ? 'As reservas pelo site foram encerradas.'
+    lim.textContent = closed ? CLOSED_TEXT
       : soldAll ? soldOutText()
       : '1 camisa por pessoa';
     lim.classList.toggle('full', blocked);
 
     var choice = $('choice');
-    choice.textContent = closed ? 'As reservas pelo site foram encerradas.'
+    choice.textContent = closed ? CLOSED_TEXT
       : soldAll ? soldOutText()
       : selected ? 'Sua camisa: tamanho ' + selected + '. Para trocar, toque em outro tamanho.'
       : 'Toque no tamanho da sua camisa.';
@@ -143,7 +147,7 @@
     $('sum-total').textContent = brl(PRICE);
     $('dock-qty').textContent = selected ? 'Camisa tamanho ' + selected : 'Camisa oficial';
     $('dock-total').textContent = brl(PRICE);
-    dockBtn.textContent = closed ? 'Encerrado' : soldAll ? 'Esgotado' : selected ? 'Finalizar' : 'Reservar';
+    dockBtn.textContent = closed ? (PAUSED ? 'Pausado' : 'Encerrado') : soldAll ? 'Esgotado' : selected ? 'Finalizar' : 'Reservar';
   }
 
   /* ---------- Campos ---------- */
@@ -227,7 +231,7 @@
   /* ---------- Envio ---------- */
   form.addEventListener('submit', function (e) {
     e.preventDefault();
-    if (submitEl.classList.contains('is-loading')) return;
+    if (submitEl.classList.contains('is-loading') || PAUSED) return;
     showFormError('');
     var problem = check(true);
     if (problem) { guide(problem); return; }

@@ -42,6 +42,7 @@ section[id] { scroll-margin-top: 40px; }
 .ticker__track span { font-family: var(--display); font-weight: 800; font-size: 14px; letter-spacing: .01em; padding-left: 14px; display: inline-flex; align-items: center; gap: 14px; }
 .ticker__track span::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--y400); }
 @keyframes ticker { to { transform: translateX(-50%); } }
+.pause-banner { background: var(--y400); color: var(--g900); font-size: 15px; font-weight: 800; line-height: 1.4; text-align: center; padding: 12px 16px; border-bottom: 3px solid var(--blue); }
 .demo-banner { background: #111; color: var(--y400); font-size: 13px; font-weight: 700; text-align: center; padding: 8px 14px; }
 .demo-banner code { color: #fff; }
 
