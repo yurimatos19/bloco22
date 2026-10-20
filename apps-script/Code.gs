@@ -3,7 +3,8 @@
  *
  * Planilha "Bloco do 22 — Reservas de camisas":
  *   • Painel         — números do dia e estoque por tamanho (só fórmulas)
- *   • Balcão         — busca por código ou WhatsApp e caixa "Entregue" para o atendente
+ *   • Balcão 1, 2, 3 — um por atendente: busca por código ou WhatsApp e caixa "Entregue"
+ *                      (todos dão baixa na mesma aba Reservas, ao mesmo tempo, sem conflito)
  *   • Reservas       — 1 linha por pedido; colunas P, M, G, GG; Status Reservado/Entregue/Cancelado
  *   • Configurações  — preço, máximo por reserva, reservas abertas e estoque por tamanho
  *   • Como usar      — guia da equipe
@@ -12,7 +13,7 @@
  * Cancelar uma reserva (Status = Cancelado) devolve as camisas ao estoque.
  * Limite por pessoa: cada WhatsApp pode ter no total CFG_MAX camisas em reservas ativas.
  * Retirada: começa em PICKUP_START (domingo, 18/10, às 11h); depois, todos os dias das 9h às 18h.
- * Validade: 2 dias, até as 18h, contados da reserva (ou de 18/10 para quem reservou antes: até 20/10).
+ * Validade: quem reservou até 18/10 tem até 20/10, às 18h. A partir de 19/10, 1 dia: até as 18h do dia seguinte.
  * Camisas não retiradas no prazo voltam ao estoque e podem ser reservadas de novo (até LAST_PICKUP_DAY).
  * Vencida → Status "Expirado" (automático, de hora em hora), as camisas voltam ao estoque e a
  * pessoa pode reservar de novo.
@@ -25,9 +26,9 @@ const APP = {
   // Planilha "Bloco do 22 — Reservas de camisas" (ID que aparece na URL dela)
   SPREADSHEET_ID: '1mjnLKelq4nEKKi9UhNNnodgJvK9-_zIo6tKXsoFxssM',
   SIZES: ['P', 'M', 'G', 'GG'],
-  SHEETS: { PAINEL: 'Painel', BALCAO: 'Balcão', RESERVAS: 'Reservas', CONFIG: 'Configurações', GUIA: 'Como usar' },
+  SHEETS: { PAINEL: 'Painel', BALCAO: 'Balcão', BALCOES: ['Balcão 1', 'Balcão 2', 'Balcão 3'], RESERVAS: 'Reservas', CONFIG: 'Configurações', GUIA: 'Como usar' },
   STATUS: { RESERVADO: 'Reservado', ENTREGUE: 'Entregue', CANCELADO: 'Cancelado', EXPIRADO: 'Expirado' },
-  HOLD_DAYS: 2,                 // dias de validade a partir da reserva (ou de 18/10), limitado a LAST_PICKUP_DAY
+  HOLD_DAYS: 1,                 // dias de validade a partir da reserva, limitado a LAST_PICKUP_DAY (até 18/10 eram 2)
   PICKUP_START: '2026-10-18',   // primeiro dia de retirada no Comitê (domingo)
   PICKUP_START_HOUR: 11,        // no primeiro dia, a entrega começa às 11h
   PICKUP_HOUR: 18,              // a reserva vence às 18h do último dia
@@ -67,9 +68,19 @@ const NCOLS = HEADERS.length;
 /* Endpoints do site                                                  */
 /* ------------------------------------------------------------------ */
 
+// Muita gente abrindo o site ao mesmo tempo: o saldo fica guardado por alguns segundos, para não
+// ler a planilha inteira a cada visita. Uma reserva nova apaga o guardado na hora.
+const STATUS_CACHE_KEY = 'status_v1';
+const STATUS_CACHE_SEC = 20;
+
 function doGet() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get(STATUS_CACHE_KEY);
+  if (hit) return text_(hit);
   const s = settings_();
-  return json_({ ok: true, open: s.open, price: s.price, max: s.max, stock: remaining_(s.stock) });
+  const body = JSON.stringify({ ok: true, open: s.open, price: s.price, max: s.max, stock: remaining_(s.stock) });
+  cache.put(STATUS_CACHE_KEY, body, STATUS_CACHE_SEC);
+  return text_(body);
 }
 
 function doPost(e) {
@@ -90,6 +101,13 @@ function doPost(e) {
     const v = validate_(data, s.max);
     if (v.error) return json_({ ok: false, error: v.error });
 
+    // O site reenvia sozinho quando a conexão cai. Cada envio leva um id: se essa reserva já foi
+    // gravada, devolve a mesma resposta em vez de recusar com "esse WhatsApp já tem reserva".
+    const rid = /^[A-Za-z0-9-]{8,64}$/.test(String(data.rid || '')) ? 'rid_' + data.rid : '';
+    const cache = CacheService.getScriptCache();
+    const done = rid && cache.get(rid);
+    if (done) return text_(done);
+
     if (!checkRateLimit_(v.phone)) {
       return json_({ ok: false, error: 'Muitas reservas para este WhatsApp em pouco tempo. Tente novamente mais tarde.' });
     }
@@ -97,12 +115,19 @@ function doPost(e) {
     // Uma reserva por vez (evita estoque a mais e código repetido). Se a fila estiver longa,
     // responde "ocupado" sem gravar nada, e o site tenta de novo sozinho.
     const lock = LockService.getScriptLock();
-    if (!lock.tryLock(28000)) {
+    if (!lock.tryLock(15000)) {
       return json_({ ok: false, busy: true, error: 'Muita gente reservando agora. Tente de novo em alguns segundos.' });
     }
     try {
+      const again = rid && cache.get(rid); // gravada enquanto este envio esperava na fila
+      if (again) return text_(again);
+
+      // Uma leitura só da aba Reservas para o limite por pessoa, o saldo e o código novo.
+      const rs = sheet_(APP.SHEETS.RESERVAS);
+      const rows = allRows_(rs);
+
       // Limite por pessoa: soma o que esse WhatsApp já tem em reservas não canceladas.
-      const already = shirtsByPhone_(v.phone);
+      const already = shirtsByPhone_(v.phone, rows);
       if (already + v.qty > s.max) {
         return json_({
           ok: false,
@@ -114,7 +139,7 @@ function doPost(e) {
       }
 
       // Confere o estoque dentro da trava, para reservas simultâneas não passarem do limite.
-      const left = remaining_(s.stock);
+      const left = remaining_(s.stock, rows);
       for (const size of Object.keys(v.items)) {
         if (v.items[size] > left[size]) {
           return json_({
@@ -126,9 +151,12 @@ function doPost(e) {
           });
         }
       }
-      const reservation = saveReservation_(v, s.price);
+      const reservation = saveReservation_(v, s.price, rs, rows);
       countReservation_(v.phone);
-      return json_(Object.assign({ ok: true }, reservation));
+      const body = JSON.stringify(Object.assign({ ok: true }, reservation));
+      if (rid) cache.put(rid, body, 21600);
+      cache.remove(STATUS_CACHE_KEY);
+      return text_(body);
     } finally {
       lock.releaseLock();
     }
@@ -146,21 +174,17 @@ function doPost(e) {
 /* Reservas                                                           */
 /* ------------------------------------------------------------------ */
 
-function saveReservation_(v, price) {
-  const sh = sheet_(APP.SHEETS.RESERVAS);
-  const code = uniqueCode_(sh);
+function saveReservation_(v, price, sh, rows) {
+  sh = sh || sheet_(APP.SHEETS.RESERVAS);
+  const code = uniqueCode_(rows || allRows_(sh));
   const now = new Date();
   const total = Math.round(v.qty * price * 100) / 100;
   const deadline = deadline_(now);
 
   const row = sh.getLastRow() + 1;
-  sh.getRange(row, COL.PRAZO).setNumberFormat('dd/MM/yyyy HH:mm');
-  sh.getRange(row, COL.WHATS).setNumberFormat('@');
-  sh.getRange(row, COL.DATA).setNumberFormat('dd/MM/yyyy HH:mm');
-  sh.getRange(row, COL.RETIRADA).setNumberFormat('dd/MM/yyyy HH:mm');
-  sh.getRange(row, COL.TOTAL).setNumberFormat('"R$" #,##0.00');
-  sh.getRange(row, COL.P, 1, 5).setHorizontalAlignment('center');
-  sh.getRange(row, COL.CODIGO).setFontWeight('bold');
+  // Formato copiado da linha de cima numa chamada só (antes eram 7 chamadas por reserva)
+  if (row > 2) sh.getRange(row - 1, 1, 1, NCOLS).copyFormatToRange(sh, 1, NCOLS, row, row);
+  else sh.getRange(row, COL.WHATS).setNumberFormat('@');
   sh.getRange(row, 1, 1, NCOLS).setValues([[
     code, horaRecife_(now), safe_(v.name), formatPhone_(v.phone),
     ...APP.SIZES.map(sz => v.items[sz] || ''),
@@ -268,13 +292,10 @@ function expirarReservas() {
 }
 
 // Camisas que um WhatsApp já tem em reservas ativas (não canceladas nem vencidas).
-function shirtsByPhone_(phone) {
-  const sh = sheet_(APP.SHEETS.RESERVAS);
-  const last = sh.getLastRow();
-  if (last < 2) return 0;
+function shirtsByPhone_(phone, rows) {
   let total = 0;
   const now = new Date();
-  sh.getRange(2, 1, last - 1, NCOLS).getValues().forEach(r => {
+  (rows || allRows_()).forEach(r => {
     if (!isActive_(r, now)) return;
     if (String(r[COL.WHATS - 1]).replace(/\D/g, '').slice(-11) === phone) total += Number(r[COL.QTD - 1]) || 0;
   });
@@ -282,26 +303,28 @@ function shirtsByPhone_(phone) {
 }
 
 // Saldo por tamanho = estoque − camisas em reservas ativas (entregues ou dentro do prazo).
-function remaining_(stock) {
-  const sh = sheet_(APP.SHEETS.RESERVAS);
-  const last = sh.getLastRow();
+function remaining_(stock, rows) {
   const used = {};
   APP.SIZES.forEach(sz => { used[sz] = 0; });
-  if (last >= 2) {
-    const now = new Date();
-    sh.getRange(2, 1, last - 1, NCOLS).getValues().forEach(r => {
-      if (!isActive_(r, now)) return;
-      APP.SIZES.forEach(sz => { used[sz] += Number(r[COL[sz] - 1]) || 0; });
-    });
-  }
+  const now = new Date();
+  (rows || allRows_()).forEach(r => {
+    if (!isActive_(r, now)) return;
+    APP.SIZES.forEach(sz => { used[sz] += Number(r[COL[sz] - 1]) || 0; });
+  });
   const left = {};
   APP.SIZES.forEach(sz => { left[sz] = Math.max(0, (stock[sz] || 0) - used[sz]); });
   return left;
 }
 
-function uniqueCode_(sh) {
+// Todas as linhas da aba Reservas (sem o cabeçalho)
+function allRows_(sh) {
+  sh = sh || sheet_(APP.SHEETS.RESERVAS);
   const last = sh.getLastRow();
-  const existing = new Set(last >= 2 ? sh.getRange(2, COL.CODIGO, last - 1, 1).getValues().map(r => r[0]) : []);
+  return last >= 2 ? sh.getRange(2, 1, last - 1, NCOLS).getValues() : [];
+}
+
+function uniqueCode_(rows) {
+  const existing = new Set(rows.map(r => r[COL.CODIGO - 1]));
   for (let i = 0; i < 50; i++) {
     let c = APP.CODE_PREFIX;
     const hex = Utilities.getUuid().replace(/-/g, '');
@@ -402,7 +425,7 @@ function countReservation_(phone) {
 function aoEditar(e) {
   const name = e.range.getSheet().getName();
   if (name === APP.SHEETS.RESERVAS) return onReservasEdit_(e);
-  if (name === APP.SHEETS.BALCAO) return onBalcaoEdit_(e);
+  if (name === APP.SHEETS.BALCAO || APP.SHEETS.BALCOES.indexOf(name) !== -1) return onBalcaoEdit_(e);
 }
 
 // Status = Entregue → preenche "Retirado em". Voltou para Reservado/Cancelado → limpa.
@@ -533,20 +556,22 @@ function ativarConteudo_(ss) {
   }
   cfg.getRange('B15').setFormula('=SUM(B11:B14)');
 
-  // Balcão: caixa "Entregue" e busca
-  const bal = sheet_(APP.SHEETS.BALCAO);
-  checkbox_(bal.getRange('B5'), false);
-  bal.getRange('A9').setFormula(
-    '=ARRAYFORMULA(IF($B$3="","",IFERROR(FILTER(Reservas!A2:O,' +
-      '(Reservas!A2:A=UPPER(TRIM($B$3)))+' +
-      'IF(LEN(REGEXREPLACE($B$3&"","\\D",""))>=8,RIGHT(REGEXREPLACE(Reservas!D2:D&"","\\D",""),LEN(REGEXREPLACE($B$3&"","\\D","")))=REGEXREPLACE($B$3&"","\\D",""),FALSE)' +
-      '),"Nenhuma reserva encontrada para esse código ou WhatsApp.")))');
+  // Balcões (um por atendente): caixa "Entregue" e busca
+  const balcoes = balcoes_(ss);
+  balcoes.forEach(bal => {
+    checkbox_(bal.getRange('B5'), false);
+    bal.getRange('A9').setFormula(
+      '=ARRAYFORMULA(IF($B$3="","",IFERROR(FILTER(Reservas!A2:O,' +
+        '(Reservas!A2:A=UPPER(TRIM($B$3)))+' +
+        'IF(LEN(REGEXREPLACE($B$3&"","\\D",""))>=8,RIGHT(REGEXREPLACE(Reservas!D2:D&"","\\D",""),LEN(REGEXREPLACE($B$3&"","\\D","")))=REGEXREPLACE($B$3&"","\\D",""),FALSE)' +
+        '),"Nenhuma reserva encontrada para esse código ou WhatsApp.")))');
 
-  bal.getRange(8, COL.PRAZO).setValue('Retirar até');
-  bal.getRange(8, COL.OBS).copyFormatToRange(bal, COL.PRAZO, COL.PRAZO, 8, 8);
-  bal.getRange(9, COL.OBS, 20, 1).copyFormatToRange(bal, COL.PRAZO, COL.PRAZO, 9, 28);
-  bal.getRange(9, COL.PRAZO, 20, 1).setNumberFormat('dd/MM/yyyy HH:mm');
-  bal.setColumnWidth(COL.PRAZO, 140);
+    bal.getRange(8, COL.PRAZO).setValue('Retirar até');
+    bal.getRange(8, COL.OBS).copyFormatToRange(bal, COL.PRAZO, COL.PRAZO, 8, 8);
+    bal.getRange(9, COL.OBS, 20, 1).copyFormatToRange(bal, COL.PRAZO, COL.PRAZO, 9, 28);
+    bal.getRange(9, COL.PRAZO, 20, 1).setNumberFormat('dd/MM/yyyy HH:mm');
+    bal.setColumnWidth(COL.PRAZO, 140);
+  });
 
   // Painel: todas as fórmulas
   const painel = sheet_(APP.SHEETS.PAINEL);
@@ -580,16 +605,21 @@ function ativarConteudo_(ss) {
   expirarReservas();
 
   // Configurações e guia: validade da reserva
-  cfg.getRange('A22:B22').setValues([['Validade da reserva', 'Quem reservou até 18/10: até terça, 20/10, às 18h. Depois: 2 dias a partir da reserva (até 22/10).']]);
+  cfg.getRange('A22:B22').setValues([['Validade da reserva', 'Quem reservou até 18/10: até terça, 20/10, às 18h. A partir de 19/10: 1 dia, até as 18h do dia seguinte (no máximo 22/10).']]);
   const cfgLabels = cfg.getRange(1, 1, cfg.getLastRow(), 1).getValues().map(r => String(r[0]).trim());
   const hRow = cfgLabels.indexOf('Horário de retirada');
   if (hRow !== -1) cfg.getRange(hRow + 1, 2).setValue(APP.DEFAULTS.horario);
   cfg.getRange('A21:B21').copyFormatToRange(cfg, 1, 2, 22, 22);
   const guia = sheet_(APP.SHEETS.GUIA);
   const guiaTxt = guia.getRange(1, 2, guia.getLastRow(), 1).getValues().map(r => String(r[0]));
-  const aviso = 'A entrega começa no domingo, 18/10, às 11h (das 9h às 18h). Quem reservou até 18/10 tem até terça, 20/10, às 18h; quem reservar depois tem 2 dias. Reservas não retiradas no prazo viram Expirado sozinhas e as camisas voltam ao estoque. O prazo aparece na coluna Retirar até.';
+  const aviso = 'Retirada todos os dias, das 9h às 18h. Quem reservou até 18/10 tem até terça, 20/10, às 18h; quem reservar a partir de 19/10 tem 1 dia (até as 18h do dia seguinte). Reservas não retiradas no prazo viram Expirado sozinhas e as camisas voltam ao estoque. O prazo aparece na coluna Retirar até.';
   const old = guiaTxt.findIndex(t => t.indexOf('Reservas não retiradas') !== -1);
-  recalcularPrazos_();
+  const avisoBalcao = 'Cada atendente usa o seu balcão: Balcão 1, Balcão 2 ou Balcão 3. Todos dão baixa na mesma aba Reservas, então dá para atender ao mesmo tempo. Não use cópias da planilha.';
+  if (guiaTxt.indexOf(avisoBalcao) === -1) {
+    const r = guia.getLastRow() + 2;
+    guia.getRange(r, 1, 1, 2).setValues([['!', avisoBalcao]]);
+    guia.getRange(r - 3, 1, 1, 2).copyFormatToRange(guia, 1, 2, r, r);
+  }
   if (old !== -1) guia.getRange(old + 1, 2).setValue(aviso);
   else if (guiaTxt.indexOf(aviso) === -1) {
     const r = guia.getLastRow() + 2;
@@ -600,11 +630,33 @@ function ativarConteudo_(ss) {
   // Avisos antes de editar o que não deve ser mexido (não bloqueia ninguém)
   protectRange_(rs.getRange(1, 1, rs.getMaxRows(), COL.TOTAL), 'Preenchido pelo site — evite editar');
   protectSheet_(sheet_(APP.SHEETS.PAINEL), 'Painel — só fórmulas', []);
-  protectSheet_(bal, 'Balcão — edite só os campos amarelos e a caixa Entregue',
-    [bal.getRange('B3:C3'), bal.getRange('B4:C4'), bal.getRange('B5')]);
+  balcoes.forEach(bal => protectSheet_(bal, bal.getName() + ' — edite só os campos amarelos e a caixa Entregue',
+    [bal.getRange('B3:C3'), bal.getRange('B4:C4'), bal.getRange('B5')]));
 
   installTrigger_(ss.getId());
   installHourlyTrigger_();
+}
+
+// Garante as abas Balcão 1, 2 e 3: a antiga "Balcão" vira "Balcão 1" e as outras são cópias dela.
+function balcoes_(ss) {
+  const names = APP.SHEETS.BALCOES;
+  let first = ss.getSheetByName(names[0]);
+  if (!first) {
+    first = ss.getSheetByName(APP.SHEETS.BALCAO);
+    if (!first) throw new Error('Aba "' + APP.SHEETS.BALCAO + '" não encontrada na planilha.');
+    first.setName(names[0]);
+  }
+  let pos = first.getIndex();
+  return names.map((name, i) => {
+    let sh = ss.getSheetByName(name);
+    if (!sh) {
+      sh = first.copyTo(ss).setName(name);
+      sh.getRange('B3:C4').clearContent();
+      sh.getRange('B6').clearContent().setBackground(null);
+    }
+    if (i) { ss.setActiveSheet(sh); ss.moveActiveSheet(++pos); }
+    return sh;
+  });
 }
 
 function painelFormulas_(sh) {
@@ -749,6 +801,10 @@ function isOn_(v) {
 
 function isValue_(x, wanted) {
   return String(x).normalize('NFC').trim().toLowerCase() === wanted.normalize('NFC').toLowerCase();
+}
+
+function text_(body) {
+  return ContentService.createTextOutput(body).setMimeType(ContentService.MimeType.JSON);
 }
 
 function json_(obj) {
