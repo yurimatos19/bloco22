@@ -31,7 +31,7 @@ const APP = {
   // Planilha "Bloco do 22 — Reservas de camisas" (ID que aparece na URL dela)
   SPREADSHEET_ID: '1mjnLKelq4nEKKi9UhNNnodgJvK9-_zIo6tKXsoFxssM',
   SIZES: ['P', 'M', 'G', 'GG'],
-  SHEETS: { PAINEL: 'Painel', BALCAO: 'Balcão', BALCOES: ['Balcão 1', 'Balcão 2', 'Balcão 3'], RESERVAS: 'Reservas', CONFIG: 'Configurações', GUIA: 'Como usar' },
+  SHEETS: { PAINEL: 'Painel', BALCAO: 'Balcão', BALCOES: ['Balcão 1', 'Balcão 2', 'Balcão 3'], VENDAS: ['Venda 1', 'Venda 2'], RESERVAS: 'Reservas', CONFIG: 'Configurações', GUIA: 'Como usar' },
   STATUS: { RESERVADO: 'Reservado', ENTREGUE: 'Entregue', CANCELADO: 'Cancelado', EXPIRADO: 'Expirado' },
   HOLD_DAYS: 1,                 // dias de validade a partir da reserva, limitado a LAST_PICKUP_DAY (até 18/10 eram 2)
   PICKUP_START: '2026-10-18',   // primeiro dia de retirada no Comitê (domingo)
@@ -414,6 +414,7 @@ function aoEditar(e) {
   const name = e.range.getSheet().getName();
   if (name === APP.SHEETS.RESERVAS) return onReservasEdit_(e);
   if (name === APP.SHEETS.BALCAO || APP.SHEETS.BALCOES.indexOf(name) !== -1) return onBalcaoEdit_(e);
+  if (APP.SHEETS.VENDAS.indexOf(name) !== -1) return onVendaEdit_(e);
 }
 
 // Status = Entregue → preenche "Retirado em". Voltou para Reservado/Cancelado → limpa.
@@ -852,7 +853,7 @@ function sincronizarSupabase() {
     const add = novas.filter(n => !existing.has(n.codigo)).map(n => [
       n.codigo, n.criado_em, safe_(n.nome), formatPhone_(n.whatsapp),
       ...APP.SIZES.map(sz => (sz === n.tamanho ? 1 : '')),
-      1, Number(n.total), APP.STATUS.RESERVADO, '', '', '', n.prazo,
+      1, Number(n.total), n.status || APP.STATUS.RESERVADO, n.atendente || '', n.retirado_em || '', n.obs || '', n.prazo,
     ]);
     if (add.length) {
       const first = rs.getLastRow() + 1;
@@ -890,5 +891,73 @@ function sincronizarSupabase() {
     Logger.log('Reservas novas na planilha: %s. No site agora: %s (aberto: %s)', add.length, JSON.stringify(res.stock), res.open);
   } finally {
     lock.releaseLock();
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Venda no Comitê (abas Venda 1 e Venda 2)                           */
+/* ------------------------------------------------------------------ */
+// Para quem chega sem reserva: o atendente preenche nome, WhatsApp, tamanho e o próprio nome e
+// marca "Vender". A venda usa o mesmo estoque do site (Supabase) e entra na aba Reservas já como
+// Entregue, com a observação "Venda no Comitê".
+
+/** RODE UMA VEZ: cria as abas Venda 1 e Venda 2 (pode rodar de novo, não apaga nada). */
+function criarVendas() {
+  const ss = ss_();
+  let pos = (ss.getSheetByName(APP.SHEETS.BALCOES[APP.SHEETS.BALCOES.length - 1]) || ss.getSheets()[0]).getIndex();
+  APP.SHEETS.VENDAS.forEach(name => {
+    let sh = ss.getSheetByName(name);
+    if (!sh) sh = ss.insertSheet(name);
+    ss.setActiveSheet(sh);
+    ss.moveActiveSheet(++pos);
+    sh.setHiddenGridlines(true);
+    sh.setColumnWidth(1, 170);
+    sh.setColumnWidth(2, 380);
+    sh.getRange('A1:B1').merge().setValue('Venda no Comitê — ' + name)
+      .setBackground(COLOR.green800).setFontColor('#FFFFFF').setFontSize(16).setFontWeight('bold');
+    sh.getRange('A2:B2').merge()
+      .setValue('Para quem chega SEM reserva. Preencha tudo, receba R$ 22,00, marque "Vender" e entregue a camisa. Quem já reservou pelo site: use o Balcão.')
+      .setWrap(true).setFontColor(COLOR.muted);
+    sh.setRowHeight(2, 42);
+    const labels = [['Nome completo'], ['WhatsApp'], ['Tamanho'], ['Atendente'], ['Vender']];
+    sh.getRange('A3:A7').setValues(labels).setFontWeight('bold');
+    sh.getRange('B3:B6').setBackground(COLOR.yellow50).setBorder(true, true, true, true, true, true, COLOR.line, SpreadsheetApp.BorderStyle.SOLID);
+    sh.getRange('B5').setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireValueInList(APP.SIZES, true).setAllowInvalid(false).build());
+    checkbox_(sh.getRange('B7'), false);
+    sh.getRange('A9').setValue('Resultado').setFontWeight('bold');
+    sh.getRange('B9').setWrap(true);
+    sh.setRowHeight(9, 60);
+    protectSheet_(sh, name + ' — edite só os campos amarelos e a caixa Vender', [sh.getRange('B3:B7')]);
+  });
+  Logger.log('Abas %s prontas.', APP.SHEETS.VENDAS.join(' e '));
+}
+
+function onVendaEdit_(e) {
+  const sh = e.range.getSheet();
+  if (e.range.getA1Notation() !== 'B7' || !isOn_(e.range.getValue())) return;
+  const say = (msg, ok) => sh.getRange('B9').setValue(msg)
+    .setBackground(ok ? COLOR.green100 : COLOR.blue50)
+    .setFontColor(ok ? COLOR.green800 : COLOR.blue);
+  try {
+    const [[nome], [whats], [tam], [atendente]] = sh.getRange('B3:B6').getValues();
+    if (!String(nome).trim() || !String(whats).trim() || !String(tam).trim() || !String(atendente).trim()) {
+      return say('Preencha nome completo, WhatsApp, tamanho e atendente antes de marcar "Vender".', false);
+    }
+    say('Vendendo…', true);
+    const r = supa_('vender', {
+      p_token: SUPA.TOKEN, p_nome: String(nome), p_whatsapp: String(whats),
+      p_tamanho: String(tam), p_atendente: String(atendente),
+    });
+    if (!r.ok) return say(r.error, false);
+    sh.getRange('B3:B5').clearContent();
+    say('Vendida: ' + r.code + ' — ' + r.name + ', tamanho ' + r.size + '. Receba R$ ' +
+      Number(r.total).toFixed(2).replace('.', ',') + ' e entregue a camisa.', true);
+    sincronizarSupabase(); // já entra na aba Reservas
+  } catch (err) {
+    console.error(err);
+    say('Não deu para registrar a venda agora (sem conexão com o sistema). Tente de novo em alguns segundos.', false);
+  } finally {
+    sh.getRange('B7').setValue(false);
   }
 }
