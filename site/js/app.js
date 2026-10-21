@@ -8,9 +8,11 @@
   var MAPS_URL = 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(ADDRESS);
   var API_URL = ((window.BLOCO22_CONFIG || {}).API_URL || '').trim();
   var CFG = window.BLOCO22_CONFIG || {};
-  var SUPA_URL = String(CFG.SUPABASE_URL || '').replace(/\/$/, '');
-  var SUPA_KEY = String(CFG.SUPABASE_KEY || '');
-  var DEMO = !SUPA_URL;
+  // Endereço do sistema fixo aqui também: se o config.js não carregar (internet ruim ou versão
+  // antiga guardada), o site continua reservando de verdade. Nunca cai em demonstração sozinho.
+  var SUPA_URL = String(CFG.SUPABASE_URL || 'https://mmvcveyfvysrzoxcvzxd.supabase.co').replace(/\/$/, '');
+  var SUPA_KEY = String(CFG.SUPABASE_KEY || 'sb_publishable_UXy2eIUyoG-BW8COyuhSmg_LGBvxc4S');
+  var DEMO = CFG.DEMO === true; // só quando ligado de propósito, para testes
   var STORAGE_KEY = 'bloco22:ultima-reserva';
 
   var stock = null; // saldo por tamanho vindo da planilha, ex.: { P: 150, M: 250, ... }
