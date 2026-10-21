@@ -344,8 +344,18 @@ function settings_() {
   } else {
     Object.assign(stock, APP.DEFAULTS.stock);
   }
+  // Estoque da venda no Comitê: coluna C da mesma tabela (Configurações C11:C14)
+  const presencial = {};
+  APP.SIZES.forEach(sz => { presencial[sz] = 0; });
+  const cfgSh = ss.getSheetByName(APP.SHEETS.CONFIG);
+  if (cfgSh) {
+    cfgSh.getRange(CFG_PRESENCIAL).getValues().forEach(([q], i) => {
+      presencial[APP.SIZES[i]] = Math.max(0, Math.floor(Number(q) || 0));
+    });
+  }
   const open = named('CFG_ABERTAS');
   return {
+    presencial: presencial,
     price: num('CFG_PRECO', APP.DEFAULTS.price),
     max: Math.floor(num('CFG_MAX', APP.DEFAULTS.max)),
     open: (open ? isOn_(open.getValue()) : true) && !pickupOver_(new Date()),
@@ -651,15 +661,16 @@ function sincronizar() {}
 function painelFormulas_(sh) {
   const R = 'Reservas!';
   const S = R + 'K2:K';
+  const SITE = ',' + R + 'N2:N,"<>' + VENDA.OBS + '"'; // vendas no Comitê têm estoque próprio
   // Estoque lido direto das células da aba Configurações (B11:B14), sem depender de nome
   const CFG = "'" + APP.SHEETS.CONFIG + "'!";
   const ST = 'SUM(' + CFG + 'B11:B14)';
   // Cartões: valor na linha de baixo do rótulo
   const cards = {
-    A5: '=COUNTIFS(' + R + 'A2:A,"<>",' + S + ',"<>Cancelado",' + S + ',"<>Expirado")',
-    C5: '=SUMIFS(' + R + 'I2:I,' + S + ',"<>Cancelado",' + S + ',"<>Expirado")',
+    A5: '=COUNTIFS(' + R + 'A2:A,"<>",' + S + ',"<>Cancelado",' + S + ',"<>Expirado"' + SITE + ')',
+    C5: '=SUMIFS(' + R + 'I2:I,' + S + ',"<>Cancelado",' + S + ',"<>Expirado"' + SITE + ')',
     C6: '="de "&' + ST + '&" camisas"',
-    E5: '=SUMIFS(' + R + 'I2:I,' + S + ',"Entregue")',
+    E5: '=SUMIFS(' + R + 'I2:I,' + S + ',"Entregue"' + SITE + ')',
     G5: '=C5-E5',
     A9: '=MAX(0,' + ST + '-C5)',
     C9: '=SUMIFS(' + R + 'J2:J,' + S + ',"Reservado")',
@@ -677,8 +688,8 @@ function painelFormulas_(sh) {
     sh.getRange(r, 1, 1, 8).setFormulas([[
       '="' + sz + '"',
       '=' + CFG + 'B' + (11 + i),
-      '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"<>Cancelado",' + S + ',"<>Expirado")',
-      '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"Entregue")',
+      '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"<>Cancelado",' + S + ',"<>Expirado"' + SITE + ')',
+      '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"Entregue"' + SITE + ')',
       '=C' + r + '-D' + r,
       '=MAX(0,B' + r + '-C' + r + ')',
       '=SPARKLINE(C' + r + ',{"charttype","bar";"max",MAX(1,B' + r + ');"color1","' + COLOR.green600 + '"})',
@@ -745,7 +756,7 @@ function painelHoje_(sh) {
     ['A25', 'Vencem hoje', '=COUNTIFS(' + R + 'K2:K,"Reservado",' + R + 'O2:O,">="&TODAY(),' + R + 'O2:O,"<"&TODAY()+1)', 'reservas com prazo até 18h de hoje', '0'],
     ['C25', 'Comitê (total)', '=COUNTIF(' + R + 'N2:N,' + COMITE + ')', 'camisas vendidas sem reserva', '0'],
     ['E25', 'Comitê (valor)', '=SUMIFS(' + R + 'J2:J,' + R + 'N2:N,' + COMITE + ')', 'recebido nas vendas sem reserva', '"R$" #,##0.00'],
-    ['G25', 'Pelo site (total)', '=COUNTIFS(' + R + 'A2:A,"<>",' + R + 'N2:N,' + NAO_COMITE + ')', 'reservas já feitas no site', '0'],
+    ['G25', 'Comitê disponíveis', '=MAX(0,SUM(\'' + APP.SHEETS.CONFIG + '\'!' + CFG_PRESENCIAL + ')-COUNTIFS(' + R + 'N2:N,' + COMITE + ',' + R + 'K2:K,"<>Cancelado"))', 'camisas para vender no Comitê', '0'],
   ];
   cards.forEach(([a1, label, f, cap, fmt]) => {
     const top = sh.getRange(a1);
@@ -754,7 +765,8 @@ function painelHoje_(sh) {
     top.offset(2, 0).setValue(cap);
   });
   // Comitê em azul, para diferenciar do site
-  ['E22', 'C26', 'E26'].forEach(a1 => sh.getRange(a1).setFontColor(COLOR.blue));
+  ['E22', 'C26', 'E26', 'G26'].forEach(a1 => sh.getRange(a1).setFontColor(COLOR.blue));
+  sh.getRange('E10').setValue('Balcão + Comitê');
 
   sh.getRange('A29:H29').merge().setValue(aviso)
     .setBackground(COLOR.paper).setFontColor(COLOR.muted).setFontSize(10).setVerticalAlignment('middle');
@@ -937,17 +949,21 @@ function sincronizarSupabase() {
     // Saldo real = estoque da Configurações − camisas em reservas ativas (entregues ou no prazo)
     const s = settings_();
     const now = new Date();
-    const used = {};
-    APP.SIZES.forEach(sz => { used[sz] = 0; });
+    const used = {}, usedComite = {};
+    APP.SIZES.forEach(sz => { used[sz] = 0; usedComite[sz] = 0; });
     const whats = new Set();
     rows.forEach(r => {
       if (!isActive_(r, now)) return;
-      APP.SIZES.forEach(sz => { used[sz] += Number(r[COL[sz] - 1]) || 0; });
+      const alvo = String(r[COL.OBS - 1]) === VENDA.OBS ? usedComite : used; // Comitê não tira do site
+      APP.SIZES.forEach(sz => { alvo[sz] += Number(r[COL[sz] - 1]) || 0; });
       const w = String(r[COL.WHATS - 1]).replace(/\D/g, '').slice(-11);
       if (w) whats.add(w);
     });
-    const saldo = {};
-    APP.SIZES.forEach(sz => { saldo[sz] = Math.max(0, (s.stock[sz] || 0) - used[sz]); });
+    const saldo = {}, saldoComite = {};
+    APP.SIZES.forEach(sz => {
+      saldo[sz] = Math.max(0, (s.stock[sz] || 0) - used[sz]);
+      saldoComite[sz] = Math.max(0, (s.presencial[sz] || 0) - usedComite[sz]);
+    });
 
     const res = supa_('ajustar', {
       p_token: SUPA.TOKEN,
@@ -957,6 +973,7 @@ function sincronizarSupabase() {
       p_codigos: rows.map(r => r[COL.CODIGO - 1]).filter(Boolean),
       p_aberto: s.open,
       p_preco: s.price,
+      p_saldo_presencial: saldoComite,
     });
     Logger.log('Reservas novas na planilha: %s. No site agora: %s (aberto: %s)', add.length, JSON.stringify(res.stock), res.open);
     try {
@@ -964,7 +981,8 @@ function sincronizarSupabase() {
       sheet_(APP.SHEETS.PAINEL).getRange(PAINEL_STATUS).setValue(
         (res.open ? '● Reservas ABERTAS' : '○ Reservas FECHADAS') + '   ·   sincronizado às ' +
         Utilities.formatDate(new Date(), APP.TZ, 'HH:mm') + '   ·   o site vê: ' +
-        APP.SIZES.map(sz => sz + ' ' + (st[sz] || 0)).join('  ') + (add.length ? '   ·   +' + add.length + ' novas' : ''));
+        APP.SIZES.map(sz => sz + ' ' + (st[sz] || 0)).join('  ') + '   ·   Comitê: ' +
+        APP.SIZES.map(sz => sz + ' ' + ((res.presencial || {})[sz] || 0)).join('  ') + (add.length ? '   ·   +' + add.length + ' novas' : ''));
     } catch (e) { console.error(e); }
   } finally {
     lock.releaseLock();
@@ -1053,11 +1071,14 @@ function montarVenda_(sh, name) {
 
   // Disponíveis agora (mesmo saldo do Painel)
   sh.setRowHeight(10, 14);
-  sh.getRange('A11:F11').merge().setValue('Disponíveis agora (site e Comitê usam o mesmo estoque)')
+  sh.getRange('A11:F11').merge().setValue('Disponíveis para venda no Comitê (estoque separado do site)')
     .setFontWeight('bold').setFontColor(COLOR.green800).setBackground(COLOR.paper);
   sh.getRange('A12:F12').setValues([['Tamanho', 'P', 'M', 'G', 'GG', 'Total']])
     .setFontWeight('bold').setFontColor('#FFFFFF').setBackground(COLOR.green800).setHorizontalAlignment('center');
-  sh.getRange('A13:F13').setFormulas([['="Camisas"', '=Painel!F14', '=Painel!F15', '=Painel!F16', '=Painel!F17', '=SUM(B13:E13)']])
+  const CF = "'" + APP.SHEETS.CONFIG + "'!C";
+  sh.getRange('A13:F13').setFormulas([['="Camisas"'].concat(APP.SIZES.map((sz, i) =>
+    '=MAX(0,' + CF + (11 + i) + '-COUNTIFS(Reservas!N2:N,"' + VENDA.OBS + '",Reservas!K2:K,"<>Cancelado",Reservas!' +
+    columnLetter_(COL[sz]) + '2:' + columnLetter_(COL[sz]) + ',">0"))'), ['=SUM(B13:E13)'])])
     .setFontWeight('bold').setFontSize(16).setFontColor(COLOR.green800).setHorizontalAlignment('center')
     .setBorder(true, true, true, true, true, null, COLOR.line, SpreadsheetApp.BorderStyle.SOLID);
   sh.getRange('A13').setFontSize(11).setFontColor(COLOR.muted);
@@ -1115,4 +1136,41 @@ function onVendaEdit_(e) {
   } finally {
     sh.getRange(VENDA.VENDER).setValue(false);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Estoques separados: site (coluna B) e Comitê (coluna C)            */
+/* ------------------------------------------------------------------ */
+const CFG_PRESENCIAL = 'C11:C14';
+
+/** RODE UMA VEZ: cria a coluna do estoque do Comitê e atualiza Painel e abas de venda. */
+function separarEstoques() {
+  const ss = ss_();
+  ss.setSpreadsheetLocale('en_US');
+  SpreadsheetApp.flush();
+  try {
+    const cfg = sheet_(APP.SHEETS.CONFIG);
+    const nota = 'B = estoque do site (reservas online). C = estoque da venda no Comitê (abas Venda 1 e 2). ' +
+      'São separados: vender no Comitê não tira camisa do site. O total é a quantidade de camisas, não o que sobrou.';
+    if (String(cfg.getRange('C10').getValue()) !== 'Comitê (presencial)') {
+      cfg.getRange('C11:C14').clearContent(); // tirava o texto de ajuda daqui
+      cfg.getRange(CFG_PRESENCIAL).setValues(APP.SIZES.map(() => [0]));
+    }
+    cfg.getRange('B10:C10').setValues([['Site (online)', 'Comitê (presencial)']]);
+    cfg.getRange('B10').copyFormatToRange(cfg, 3, 3, 10, 10);
+    cfg.getRange('B11:B15').copyFormatToRange(cfg, 3, 3, 11, 15);
+    cfg.getRange('C15').setFormula('=SUM(C11:C14)');
+    cfg.getRange('A16:C16').merge().setValue(nota).setWrap(true).setFontSize(10)
+      .setFontColor(COLOR.muted).setBackground(COLOR.paper);
+    cfg.setRowHeight(16, 36);
+
+    painelFormulas_(sheet_(APP.SHEETS.PAINEL));
+    APP.SHEETS.VENDAS.forEach(name => { const sh = ss.getSheetByName(name); if (sh) montarVenda_(sh, name); });
+  } finally {
+    SpreadsheetApp.flush();
+    ss.setSpreadsheetLocale('pt_BR');
+    SpreadsheetApp.flush();
+  }
+  sincronizarSupabase();
+  Logger.log('Pronto. Agora preencha o estoque do Comitê na aba Configurações (coluna C).');
 }
