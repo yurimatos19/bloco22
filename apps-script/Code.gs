@@ -695,7 +695,69 @@ function painelFormulas_(sh) {
   ]]);
   sh.getRange(14, 2, APP.SIZES.length + 1, 5).setNumberFormat('0');
   sh.getRange(14, 8, APP.SIZES.length + 1, 1).setNumberFormat('0%');
+  painelHoje_(sh);
 }
+
+/** RODE QUANDO QUISER: acrescenta ao Painel a seção Hoje, o Comitê e o status do site. */
+function atualizarPainel() {
+  const ss = ss_();
+  ss.setSpreadsheetLocale('en_US');
+  SpreadsheetApp.flush();
+  try {
+    painelHoje_(sheet_(APP.SHEETS.PAINEL));
+  } finally {
+    SpreadsheetApp.flush();
+    ss.setSpreadsheetLocale('pt_BR');
+    SpreadsheetApp.flush();
+  }
+}
+
+// Linha do Painel onde o sincronizarSupabase escreve o status do site
+const PAINEL_STATUS = 'A3';
+
+// Seção "Hoje" (linhas 20 a 26), no mesmo estilo dos cartões do topo
+function painelHoje_(sh) {
+  const R = 'Reservas!';
+  const HOJE = '">="&TODAY()';
+  const COMITE = '"' + VENDA.OBS + '"';
+  const NAO_COMITE = '"<>' + VENDA.OBS + '"';
+
+  // Aviso antigo da linha 20 desce para a 28
+  const aviso = sh.getRange('A20').getValue();
+  if (aviso && String(aviso).indexOf('Hoje') !== 0) {
+    sh.getRange('A20:H20').copyTo(sh.getRange('A28:H28'));
+    sh.getRange('A20:H20').breakApart().clear();
+  }
+
+  sh.getRange('A12:H12').copyTo(sh.getRange('A20:H20'), { formatOnly: true });
+  sh.getRange('A20').setValue('Hoje');
+  sh.getRange('A4:H6').copyTo(sh.getRange('A21:H23'), { formatOnly: true });
+  sh.getRange('A8:H10').copyTo(sh.getRange('A24:H26'), { formatOnly: true });
+  const cards = [
+    ['A21', 'Reservas pelo site', 'A22', '=COUNTIFS(' + R + 'B2:B,' + HOJE + ',' + R + 'N2:N,' + NAO_COMITE + ')', 'A23', 'feitas hoje', '0'],
+    ['C21', 'Retiradas no Balcão', 'C22', '=COUNTIFS(' + R + 'K2:K,"Entregue",' + R + 'M2:M,' + HOJE + ',' + R + 'N2:N,' + NAO_COMITE + ')', 'C23', 'reservas entregues hoje', '0'],
+    ['E21', 'Vendas no Comitê', 'E22', '=COUNTIFS(' + R + 'N2:N,' + COMITE + ',' + R + 'M2:M,' + HOJE + ')', 'E23', 'sem reserva, hoje', '0'],
+    ['G21', 'Recebido hoje', 'G22', '=SUMIFS(' + R + 'J2:J,' + R + 'K2:K,"Entregue",' + R + 'M2:M,' + HOJE + ')', 'G23', 'Balcão + Comitê', '"R$" #,##0.00'],
+    ['A24', 'Comitê (total)', 'A25', '=COUNTIF(' + R + 'N2:N,' + COMITE + ')', 'A26', 'camisas vendidas sem reserva', '0'],
+    ['C24', 'Comitê (valor)', 'C25', '=SUMIFS(' + R + 'J2:J,' + R + 'N2:N,' + COMITE + ')', 'C26', 'recebido nas vendas', '"R$" #,##0.00'],
+    ['E24', 'Pelo site (total)', 'E25', '=COUNTIFS(' + R + 'A2:A,"<>",' + R + 'N2:N,' + NAO_COMITE + ')', 'E26', 'reservas feitas no site', '0'],
+    ['G24', 'Vencidas', 'G25', '=COUNTIF(' + R + 'K2:K,"Expirado")', 'G26', 'não retiradas no prazo', '0'],
+  ];
+  cards.forEach(([l, label, v, f, c, cap, fmt]) => {
+    sh.getRange(l).setValue(label);
+    sh.getRange(v).setFormula(f).setNumberFormat(fmt);
+    sh.getRange(c).setValue(cap);
+  });
+  // Os cartões do Comitê em azul, para diferenciar do site
+  ['E22', 'A25', 'C25'].forEach(a1 => sh.getRange(a1).setFontColor(COLOR.blue));
+  sh.getRange('G22').setFontColor(COLOR.green600);
+
+  // Linha de status (escrita pelo sincronizarSupabase a cada minuto)
+  sh.getRange('A3:H3').merge().setBackground(COLOR.green900).setFontColor(COLOR.yellow)
+    .setFontSize(10).setFontWeight('bold').setHorizontalAlignment('left');
+  if (!sh.getRange(PAINEL_STATUS).getValue()) sh.getRange(PAINEL_STATUS).setValue('Aguardando a primeira sincronização com o site…');
+}
+
 
 // Atualiza o intervalo nomeado sem apagar: apagar transforma em #REF! as fórmulas que o usam.
 function named_(ss, name, range) {
@@ -889,6 +951,13 @@ function sincronizarSupabase() {
       p_preco: s.price,
     });
     Logger.log('Reservas novas na planilha: %s. No site agora: %s (aberto: %s)', add.length, JSON.stringify(res.stock), res.open);
+    try {
+      const st = res.stock || {};
+      sheet_(APP.SHEETS.PAINEL).getRange(PAINEL_STATUS).setValue(
+        (res.open ? '● Reservas ABERTAS' : '○ Reservas FECHADAS') + '   ·   sincronizado às ' +
+        Utilities.formatDate(new Date(), APP.TZ, 'HH:mm') + '   ·   o site vê: ' +
+        APP.SIZES.map(sz => sz + ' ' + (st[sz] || 0)).join('  ') + (add.length ? '   ·   +' + add.length + ' novas' : ''));
+    } catch (e) { console.error(e); }
   } finally {
     lock.releaseLock();
   }
