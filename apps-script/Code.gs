@@ -672,7 +672,7 @@ function painelFormulas_(sh) {
     C6: '="de "&' + ST + '&" camisas"',
     E5: '=SUMIFS(' + R + 'I2:I,' + S + ',"Entregue"' + SITE + ')',
     G5: '=C5-E5',
-    A9: '=MAX(0,' + ST + '-C5)',
+    A9: '=F' + (14 + APP.SIZES.length),
     C9: '=SUMIFS(' + R + 'J2:J,' + S + ',"Reservado")',
     E9: '=SUMIFS(' + R + 'J2:J,' + S + ',"Entregue")',
     G9: '=COUNTIF(' + S + ',"Cancelado")+COUNTIF(' + S + ',"Expirado")',
@@ -691,7 +691,7 @@ function painelFormulas_(sh) {
       '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"<>Cancelado",' + S + ',"<>Expirado"' + SITE + ')',
       '=SUMIFS(' + R + L + '2:' + L + ',' + S + ',"Entregue"' + SITE + ')',
       '=C' + r + '-D' + r,
-      '=MAX(0,B' + r + '-C' + r + ')',
+      '=MAX(0,B' + r + '-C' + r + '-' + presasF_(L) + ')',
       '=SPARKLINE(C' + r + ',{"charttype","bar";"max",MAX(1,B' + r + ');"color1","' + COLOR.green600 + '"})',
       '=IFERROR(C' + r + '/B' + r + ',0)',
     ]]);
@@ -756,7 +756,9 @@ function painelHoje_(sh) {
     ['A25', 'Vencem hoje', '=COUNTIFS(' + R + 'K2:K,"Reservado",' + R + 'O2:O,">="&TODAY(),' + R + 'O2:O,"<"&TODAY()+1)', 'reservas com prazo até 18h de hoje', '0'],
     ['C25', 'Comitê (total)', '=COUNTIF(' + R + 'N2:N,' + COMITE + ')', 'camisas vendidas sem reserva', '0'],
     ['E25', 'Comitê (valor)', '=SUMIFS(' + R + 'J2:J,' + R + 'N2:N,' + COMITE + ')', 'recebido nas vendas sem reserva', '"R$" #,##0.00'],
-    ['G25', 'Comitê disponíveis', '=MAX(0,SUM(\'' + APP.SHEETS.CONFIG + '\'!' + CFG_PRESENCIAL + ')-COUNTIFS(' + R + 'N2:N,' + COMITE + ',' + R + 'K2:K,"<>Cancelado"))', 'camisas para vender no Comitê', '0'],
+    ['G25', 'Comitê disponíveis', '=MAX(0,SUM(\'' + APP.SHEETS.CONFIG + '\'!' + CFG_PRESENCIAL + ')+' +
+      APP.SIZES.map(sz => presasF_(columnLetter_(COL[sz]))).join('+') +
+      '-COUNTIFS(' + R + 'N2:N,' + COMITE + ',' + R + 'K2:K,"<>Cancelado"))', 'inclui as reservas vencidas', '0'],
   ];
   cards.forEach(([a1, label, f, cap, fmt]) => {
     const top = sh.getRange(a1);
@@ -955,8 +957,21 @@ function sincronizarSupabase() {
     const used = {}, usedComite = {};
     APP.SIZES.forEach(sz => { used[sz] = 0; usedComite[sz] = 0; });
     const whats = new Set();
+    const liberadas = {}; // camisas de reservas do site vencidas/canceladas depois do corte → Comitê
+    APP.SIZES.forEach(sz => { liberadas[sz] = 0; });
+    const corte = new Date(SITE_TRAVADO_DESDE);
     rows.forEach(r => {
-      if (!isActive_(r, now)) return;
+      if (!isActive_(r, now)) {
+        const prazo = prazoDate_(r[COL.PRAZO - 1]);
+        if (r[COL.CODIGO - 1] && String(r[COL.OBS - 1]) !== VENDA.OBS && prazo && prazo >= corte) {
+          APP.SIZES.forEach(sz => {
+            const q = Number(r[COL[sz] - 1]) || 0;
+            used[sz] += q;       // continua ocupando o estoque do site (não volta)
+            liberadas[sz] += q;  // e passa para a venda no Comitê
+          });
+        }
+        return;
+      }
       const alvo = String(r[COL.OBS - 1]) === VENDA.OBS ? usedComite : used; // Comitê não tira do site
       APP.SIZES.forEach(sz => { alvo[sz] += Number(r[COL[sz] - 1]) || 0; });
       const w = String(r[COL.WHATS - 1]).replace(/\D/g, '').slice(-11);
@@ -965,7 +980,7 @@ function sincronizarSupabase() {
     const saldo = {}, saldoComite = {};
     APP.SIZES.forEach(sz => {
       saldo[sz] = Math.max(0, (s.stock[sz] || 0) - used[sz]);
-      saldoComite[sz] = Math.max(0, (s.presencial[sz] || 0) - usedComite[sz]);
+      saldoComite[sz] = Math.max(0, (s.presencial[sz] || 0) + liberadas[sz] - usedComite[sz]);
     });
 
     const res = supa_('ajustar', {
@@ -1074,13 +1089,13 @@ function montarVenda_(sh, name) {
 
   // Disponíveis agora (mesmo saldo do Painel)
   sh.setRowHeight(10, 14);
-  sh.getRange('A11:F11').merge().setValue('Disponíveis para venda no Comitê (estoque separado do site)')
+  sh.getRange('A11:F11').merge().setValue('Disponíveis para venda no Comitê (estoque do Comitê + reservas vencidas)')
     .setFontWeight('bold').setFontColor(COLOR.green800).setBackground(COLOR.paper);
   sh.getRange('A12:F12').setValues([['Tamanho', 'P', 'M', 'G', 'GG', 'Total']])
     .setFontWeight('bold').setFontColor('#FFFFFF').setBackground(COLOR.green800).setHorizontalAlignment('center');
   const CF = "'" + APP.SHEETS.CONFIG + "'!C";
   sh.getRange('A13:F13').setFormulas([['="Camisas"'].concat(APP.SIZES.map((sz, i) =>
-    '=MAX(0,' + CF + (11 + i) + '-COUNTIFS(Reservas!N2:N,"' + VENDA.OBS + '",Reservas!K2:K,"<>Cancelado",Reservas!' +
+    '=MAX(0,' + CF + (11 + i) + '+' + presasF_(columnLetter_(COL[sz])) + '-COUNTIFS(Reservas!N2:N,"' + VENDA.OBS + '",Reservas!K2:K,"<>Cancelado",Reservas!' +
     columnLetter_(COL[sz]) + '2:' + columnLetter_(COL[sz]) + ',">0"))'), ['=SUM(B13:E13)'])])
     .setFontWeight('bold').setFontSize(16).setFontColor(COLOR.green800).setHorizontalAlignment('center')
     .setBorder(true, true, true, true, true, null, COLOR.line, SpreadsheetApp.BorderStyle.SOLID);
@@ -1176,4 +1191,41 @@ function separarEstoques() {
   }
   sincronizarSupabase();
   Logger.log('Pronto. Agora preencha o estoque do Comitê na aba Configurações (coluna C).');
+}
+
+/* ------------------------------------------------------------------ */
+/* Site travado: reservas vencidas/canceladas não voltam para o site  */
+/* ------------------------------------------------------------------ */
+// Desde 21/10 às 13h: camisas de reservas do site que vencem (ou são canceladas) com prazo a partir
+// daqui ficam fora do site e passam para a venda no Comitê (abas Venda 1 e 2).
+const SITE_TRAVADO_DESDE = '2026-10-21T13:00:00-03:00';
+
+function prazoDate_(v) {
+  if (!v) return null;
+  const d = v instanceof Date ? v : new Date(String(v).replace(' ', 'T') + '-03:00');
+  return isNaN(d) ? null : d;
+}
+
+// Fórmula: camisas (coluna L do tamanho) de reservas do site vencidas/canceladas depois do corte
+function presasF_(L) {
+  const R = 'Reservas!';
+  const corte = 'DATE(2026,10,21)+TIME(13,0,0)';
+  const base = ',' + R + 'N2:N,"<>' + VENDA.OBS + '",' + R + 'O2:O,">="&' + corte;
+  return '(SUMIFS(' + R + L + '2:' + L + ',' + R + 'K2:K,"Expirado"' + base + ')+SUMIFS(' + R + L + '2:' + L + ',' + R + 'K2:K,"Cancelado"' + base + '))';
+}
+
+/** RODE UMA VEZ: atualiza Painel e abas de venda com a regra "vencidas vão para o Comitê". */
+function travarSite() {
+  const ss = ss_();
+  ss.setSpreadsheetLocale('en_US');
+  SpreadsheetApp.flush();
+  try {
+    painelFormulas_(sheet_(APP.SHEETS.PAINEL));
+    APP.SHEETS.VENDAS.forEach(name => { const sh = ss.getSheetByName(name); if (sh) montarVenda_(sh, name); });
+  } finally {
+    SpreadsheetApp.flush();
+    ss.setSpreadsheetLocale('pt_BR');
+    SpreadsheetApp.flush();
+  }
+  sincronizarSupabase();
 }
