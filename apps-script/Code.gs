@@ -715,46 +715,54 @@ function atualizarPainel() {
 // Linha do Painel onde o sincronizarSupabase escreve o status do site
 const PAINEL_STATUS = 'A3';
 
-// Seção "Hoje" (linhas 20 a 26), no mesmo estilo dos cartões do topo
+// Seção "Hoje" (linhas 20 a 29), com a mesma altura e o mesmo espaçamento dos cartões do topo
 function painelHoje_(sh) {
   const R = 'Reservas!';
   const HOJE = '">="&TODAY()';
   const COMITE = '"' + VENDA.OBS + '"';
   const NAO_COMITE = '"<>' + VENDA.OBS + '"';
 
-  // Aviso antigo da linha 20 desce para a 28
-  const aviso = sh.getRange('A20').getValue();
-  if (aviso && String(aviso).indexOf('Hoje') !== 0) {
-    sh.getRange('A20:H20').copyTo(sh.getRange('A28:H28'));
-    sh.getRange('A20:H20').breakApart().clear();
-  }
+  // Guarda o aviso do rodapé, limpa a área e remonta do zero (pode rodar quantas vezes quiser)
+  let aviso = 'Para dar baixa numa retirada, use a aba Balcão. Para cancelar uma reserva, mude o Status na aba Reservas.';
+  sh.getRange('A19:A34').getValues().forEach(([v]) => { if (String(v).indexOf('Para dar baixa') === 0) aviso = String(v); });
+  sh.getRange('A19:H34').breakApart().clear();
 
-  sh.getRange('A12:H12').copyTo(sh.getRange('A20:H20'), { formatOnly: true });
+  // Alturas iguais às do topo: título (12), cartões (4 a 6 e 8 a 10) e espaços (7 e 11)
+  const h = n => sh.getRowHeight(n);
+  [[19, h(11)], [20, h(12)], [21, h(4)], [22, h(5)], [23, h(6)], [24, h(7)],
+   [25, h(8)], [26, h(9)], [27, h(10)], [28, h(11)], [29, 30]].forEach(([r, px]) => sh.setRowHeight(r, px));
+
+  sh.getRange('A11:H12').copyTo(sh.getRange('A19:H20'), { formatOnly: true });
   sh.getRange('A20').setValue('Hoje');
-  sh.getRange('A4:H6').copyTo(sh.getRange('A21:H23'), { formatOnly: true });
-  sh.getRange('A8:H10').copyTo(sh.getRange('A24:H26'), { formatOnly: true });
+  sh.getRange('A4:H7').copyTo(sh.getRange('A21:H24'), { formatOnly: true });
+  sh.getRange('A8:H11').copyTo(sh.getRange('A25:H28'), { formatOnly: true });
+
   const cards = [
-    ['A21', 'Reservas pelo site', 'A22', '=COUNTIFS(' + R + 'B2:B,' + HOJE + ',' + R + 'N2:N,' + NAO_COMITE + ')', 'A23', 'feitas hoje', '0'],
-    ['C21', 'Retiradas no Balcão', 'C22', '=COUNTIFS(' + R + 'K2:K,"Entregue",' + R + 'M2:M,' + HOJE + ',' + R + 'N2:N,' + NAO_COMITE + ')', 'C23', 'reservas entregues hoje', '0'],
-    ['E21', 'Vendas no Comitê', 'E22', '=COUNTIFS(' + R + 'N2:N,' + COMITE + ',' + R + 'M2:M,' + HOJE + ')', 'E23', 'sem reserva, hoje', '0'],
-    ['G21', 'Recebido hoje', 'G22', '=SUMIFS(' + R + 'J2:J,' + R + 'K2:K,"Entregue",' + R + 'M2:M,' + HOJE + ')', 'G23', 'Balcão + Comitê', '"R$" #,##0.00'],
-    ['A24', 'Comitê (total)', 'A25', '=COUNTIF(' + R + 'N2:N,' + COMITE + ')', 'A26', 'camisas vendidas sem reserva', '0'],
-    ['C24', 'Comitê (valor)', 'C25', '=SUMIFS(' + R + 'J2:J,' + R + 'N2:N,' + COMITE + ')', 'C26', 'recebido nas vendas', '"R$" #,##0.00'],
-    ['E24', 'Pelo site (total)', 'E25', '=COUNTIFS(' + R + 'A2:A,"<>",' + R + 'N2:N,' + NAO_COMITE + ')', 'E26', 'reservas feitas no site', '0'],
-    ['G24', 'Vencidas', 'G25', '=COUNTIF(' + R + 'K2:K,"Expirado")', 'G26', 'não retiradas no prazo', '0'],
+    ['A21', 'Reservas pelo site', '=COUNTIFS(' + R + 'B2:B,' + HOJE + ',' + R + 'N2:N,' + NAO_COMITE + ')', 'feitas hoje', '0'],
+    ['C21', 'Retiradas no Balcão', '=COUNTIFS(' + R + 'K2:K,"Entregue",' + R + 'M2:M,' + HOJE + ',' + R + 'N2:N,' + NAO_COMITE + ')', 'reservas entregues hoje', '0'],
+    ['E21', 'Vendas no Comitê', '=COUNTIFS(' + R + 'N2:N,' + COMITE + ',' + R + 'M2:M,' + HOJE + ')', 'sem reserva, hoje', '0'],
+    ['G21', 'Recebido hoje', '=SUMIFS(' + R + 'J2:J,' + R + 'K2:K,"Entregue",' + R + 'M2:M,' + HOJE + ')', 'Balcão + Comitê', '"R$" #,##0.00'],
+    ['A25', 'Vencem hoje', '=COUNTIFS(' + R + 'K2:K,"Reservado",' + R + 'O2:O,">="&TODAY(),' + R + 'O2:O,"<"&TODAY()+1)', 'reservas com prazo até 18h de hoje', '0'],
+    ['C25', 'Comitê (total)', '=COUNTIF(' + R + 'N2:N,' + COMITE + ')', 'camisas vendidas sem reserva', '0'],
+    ['E25', 'Comitê (valor)', '=SUMIFS(' + R + 'J2:J,' + R + 'N2:N,' + COMITE + ')', 'recebido nas vendas sem reserva', '"R$" #,##0.00'],
+    ['G25', 'Pelo site (total)', '=COUNTIFS(' + R + 'A2:A,"<>",' + R + 'N2:N,' + NAO_COMITE + ')', 'reservas já feitas no site', '0'],
   ];
-  cards.forEach(([l, label, v, f, c, cap, fmt]) => {
-    sh.getRange(l).setValue(label);
-    sh.getRange(v).setFormula(f).setNumberFormat(fmt);
-    sh.getRange(c).setValue(cap);
+  cards.forEach(([a1, label, f, cap, fmt]) => {
+    const top = sh.getRange(a1);
+    top.setValue(label);
+    top.offset(1, 0).setFormula(f).setNumberFormat(fmt);
+    top.offset(2, 0).setValue(cap);
   });
-  // Os cartões do Comitê em azul, para diferenciar do site
-  ['E22', 'A25', 'C25'].forEach(a1 => sh.getRange(a1).setFontColor(COLOR.blue));
-  sh.getRange('G22').setFontColor(COLOR.green600);
+  // Comitê em azul, para diferenciar do site
+  ['E22', 'C26', 'E26'].forEach(a1 => sh.getRange(a1).setFontColor(COLOR.blue));
+
+  sh.getRange('A29:H29').merge().setValue(aviso)
+    .setBackground(COLOR.paper).setFontColor(COLOR.muted).setFontSize(10).setVerticalAlignment('middle');
 
   // Linha de status (escrita pelo sincronizarSupabase a cada minuto)
+  sh.setRowHeight(3, 26);
   sh.getRange('A3:H3').merge().setBackground(COLOR.green900).setFontColor(COLOR.yellow)
-    .setFontSize(10).setFontWeight('bold').setHorizontalAlignment('left');
+    .setFontSize(10).setFontWeight('bold').setHorizontalAlignment('left').setVerticalAlignment('middle');
   if (!sh.getRange(PAINEL_STATUS).getValue()) sh.getRange(PAINEL_STATUS).setValue('Aguardando a primeira sincronização com o site…');
 }
 
