@@ -901,63 +901,141 @@ function sincronizarSupabase() {
 // marca "Vender". A venda usa o mesmo estoque do site (Supabase) e entra na aba Reservas já como
 // Entregue, com a observação "Venda no Comitê".
 
-/** RODE UMA VEZ: cria as abas Venda 1 e Venda 2 (pode rodar de novo, não apaga nada). */
+/** RODE UMA VEZ: cria (ou refaz) as abas Venda 1 e Venda 2. Não mexe nas vendas já feitas. */
 function criarVendas() {
   const ss = ss_();
-  let pos = (ss.getSheetByName(APP.SHEETS.BALCOES[APP.SHEETS.BALCOES.length - 1]) || ss.getSheets()[0]).getIndex();
-  APP.SHEETS.VENDAS.forEach(name => {
-    let sh = ss.getSheetByName(name);
-    if (!sh) sh = ss.insertSheet(name);
-    ss.setActiveSheet(sh);
-    ss.moveActiveSheet(++pos);
-    sh.setHiddenGridlines(true);
-    sh.setColumnWidth(1, 170);
-    sh.setColumnWidth(2, 380);
-    sh.getRange('A1:B1').merge().setValue('Venda no Comitê — ' + name)
-      .setBackground(COLOR.green800).setFontColor('#FFFFFF').setFontSize(16).setFontWeight('bold');
-    sh.getRange('A2:B2').merge()
-      .setValue('Para quem chega SEM reserva. Preencha tudo, receba R$ 22,00, marque "Vender" e entregue a camisa. Quem já reservou pelo site: use o Balcão.')
-      .setWrap(true).setFontColor(COLOR.muted);
-    sh.setRowHeight(2, 42);
-    const labels = [['Nome completo'], ['WhatsApp'], ['Tamanho'], ['Atendente'], ['Vender']];
-    sh.getRange('A3:A7').setValues(labels).setFontWeight('bold');
-    sh.getRange('B3:B6').setBackground(COLOR.yellow50).setBorder(true, true, true, true, true, true, COLOR.line, SpreadsheetApp.BorderStyle.SOLID);
-    sh.getRange('B5').setDataValidation(SpreadsheetApp.newDataValidation()
-      .requireValueInList(APP.SIZES, true).setAllowInvalid(false).build());
-    checkbox_(sh.getRange('B7'), false);
-    sh.getRange('A9').setValue('Resultado').setFontWeight('bold');
-    sh.getRange('B9').setWrap(true);
-    sh.setRowHeight(9, 60);
-    protectSheet_(sh, name + ' — edite só os campos amarelos e a caixa Vender', [sh.getRange('B3:B7')]);
-  });
+  // Fórmulas escritas em inglês (vírgula) e a planilha volta para português no fim, como no ativar
+  ss.setSpreadsheetLocale('en_US');
+  SpreadsheetApp.flush();
+  try {
+    let pos = (ss.getSheetByName(APP.SHEETS.BALCOES[APP.SHEETS.BALCOES.length - 1]) || ss.getSheets()[0]).getIndex();
+    APP.SHEETS.VENDAS.forEach(name => {
+      let sh = ss.getSheetByName(name) || ss.insertSheet(name);
+      ss.setActiveSheet(sh);
+      ss.moveActiveSheet(++pos);
+      montarVenda_(sh, name);
+    });
+  } finally {
+    SpreadsheetApp.flush();
+    ss.setSpreadsheetLocale('pt_BR');
+    SpreadsheetApp.flush();
+  }
   Logger.log('Abas %s prontas.', APP.SHEETS.VENDAS.join(' e '));
 }
 
+function montarVenda_(sh, name) {
+  const old = sh.getRange(VENDA.ATENDENTE).getValue(); // mantém o atendente se a aba já existia
+  const atendente = typeof old === 'string' ? old.trim() : '';
+  const all = sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns());
+  all.breakApart().clearDataValidations().clear();
+  sh.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(p => p.remove());
+  if (sh.getMaxColumns() > 8) sh.deleteColumns(9, sh.getMaxColumns() - 8);
+  sh.setHiddenGridlines(true);
+  sh.getRange(1, 1, sh.getMaxRows(), 8).setFontFamily('Arial').setFontSize(11).setVerticalAlignment('middle');
+  [150, 190, 150, 110, 150, 120, 20, 20].forEach((w, i) => sh.setColumnWidth(i + 1, w));
+
+  // Cabeçalho (igual ao Balcão)
+  sh.getRange('A1:F1').merge().setValue('Venda no Comitê — ' + name)
+    .setBackground(COLOR.green800).setFontColor(COLOR.yellow).setFontSize(18).setFontWeight('bold');
+  sh.getRange('A2:F2').merge()
+    .setValue('Para quem chega SEM reserva. Preencha os campos amarelos, receba R$ 22,00, marque Vender e entregue a camisa. Quem reservou pelo site: use o Balcão.')
+    .setBackground(COLOR.green800).setFontColor('#FFFFFF').setFontSize(10).setWrap(true);
+  sh.setRowHeight(1, 44);
+  sh.setRowHeight(2, 36);
+  sh.setRowHeight(3, 10);
+
+  // Campos
+  const campos = [
+    [4, 'Nome completo', 'B4:D4', 'Nome e sobrenome da pessoa'],
+    [5, 'WhatsApp', 'B5:D5', 'Com DDD, ex.: 81 99999-9999'],
+    [6, 'Tamanho', 'B6', 'Escolha na lista: P, M, G ou GG'],
+    [7, 'Atendente', 'B7:D7', 'Seu nome (fica salvo entre as vendas)'],
+    [8, 'Vender', 'B8', 'Marque depois de receber o pagamento'],
+  ];
+  campos.forEach(([row, label, range, dica]) => {
+    sh.setRowHeight(row, 32);
+    sh.getRange(row, 1).setValue(label).setFontWeight('bold').setFontColor(COLOR.green900);
+    const r = sh.getRange(range);
+    if (range.indexOf(':') !== -1) r.merge();
+    r.setBackground(COLOR.yellow50).setFontWeight('bold').setFontSize(12)
+      .setBorder(true, true, true, true, null, null, COLOR.line, SpreadsheetApp.BorderStyle.SOLID);
+    sh.getRange(row, 5, 1, 2).merge().setValue(dica).setFontColor(COLOR.muted).setFontSize(9).setWrap(true);
+  });
+  sh.getRange(VENDA.TAMANHO).setHorizontalAlignment('center')
+    .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(APP.SIZES, true).setAllowInvalid(false).build());
+  sh.getRange('C6:D6').merge();
+  checkbox_(sh.getRange(VENDA.VENDER), false);
+  sh.getRange(VENDA.VENDER).setHorizontalAlignment('center');
+  if (atendente) sh.getRange(VENDA.ATENDENTE).setValue(atendente);
+
+  // Resultado
+  sh.getRange('A9').setValue('Resultado').setFontWeight('bold').setFontColor(COLOR.green900);
+  sh.getRange('B9:F9').merge().setWrap(true).setFontWeight('bold').setFontSize(12)
+    .setBackground(COLOR.paper).setValue('Pronto para vender.').setFontColor(COLOR.muted);
+  sh.setRowHeight(9, 56);
+
+  // Disponíveis agora (mesmo saldo do Painel)
+  sh.setRowHeight(10, 14);
+  sh.getRange('A11:F11').merge().setValue('Disponíveis agora (site e Comitê usam o mesmo estoque)')
+    .setFontWeight('bold').setFontColor(COLOR.green800).setBackground(COLOR.paper);
+  sh.getRange('A12:F12').setValues([['Tamanho', 'P', 'M', 'G', 'GG', 'Total']])
+    .setFontWeight('bold').setFontColor('#FFFFFF').setBackground(COLOR.green800).setHorizontalAlignment('center');
+  sh.getRange('A13:F13').setFormulas([['="Camisas"', '=Painel!F14', '=Painel!F15', '=Painel!F16', '=Painel!F17', '=SUM(B13:E13)']])
+    .setFontWeight('bold').setFontSize(16).setFontColor(COLOR.green800).setHorizontalAlignment('center')
+    .setBorder(true, true, true, true, true, null, COLOR.line, SpreadsheetApp.BorderStyle.SOLID);
+  sh.getRange('A13').setFontSize(11).setFontColor(COLOR.muted);
+  sh.setRowHeight(13, 40);
+
+  // Vendas no Comitê
+  sh.setRowHeight(14, 14);
+  const N = "Reservas!N2:N=\"" + VENDA.OBS + "\"";
+  sh.getRange('A15:F15').merge().setFormula(
+    '="Vendas no Comitê hoje: "&COUNTIFS(Reservas!N2:N,"' + VENDA.OBS + '",Reservas!M2:M,">="&TODAY())&' +
+    '" camisas, R$ "&TEXT(SUMIFS(Reservas!J2:J,Reservas!N2:N,"' + VENDA.OBS + '",Reservas!M2:M,">="&TODAY()),"0.00")&' +
+    '" recebidos   ·   Total: "&COUNTIF(Reservas!N2:N,"' + VENDA.OBS + '")&" camisas"')
+    .setFontWeight('bold').setFontColor(COLOR.green800).setBackground(COLOR.paper);
+  sh.getRange('A16:F16').setValues([['Código', 'Nome', 'WhatsApp', 'Tamanho', 'Atendente', 'Horário']])
+    .setFontWeight('bold').setFontColor('#FFFFFF').setBackground(COLOR.green800);
+  sh.getRange('A17').setFormula(
+    '=ARRAYFORMULA(IFERROR(ARRAY_CONSTRAIN(SORT(FILTER({Reservas!A2:A,Reservas!C2:C,Reservas!D2:D,' +
+    'IF(Reservas!E2:E<>"","P",IF(Reservas!F2:F<>"","M",IF(Reservas!G2:G<>"","G","GG"))),Reservas!L2:L,Reservas!M2:M},' +
+    N + '),6,FALSE),30,6),"Nenhuma venda no Comitê ainda."))');
+  sh.getRange('A17:F46').setFontSize(10).setBorder(null, null, true, null, null, true, COLOR.line, SpreadsheetApp.BorderStyle.SOLID);
+  sh.getRange('A17:A46').setFontWeight('bold');
+  sh.getRange('D17:D46').setHorizontalAlignment('center');
+  sh.getRange('F17:F46').setNumberFormat('dd/MM HH:mm');
+
+  protectSheet_(sh, name + ' — edite só os campos amarelos e a caixa Vender',
+    [sh.getRange('B4:D4'), sh.getRange('B5:D5'), sh.getRange('B6'), sh.getRange('B7:D7'), sh.getRange('B8')]);
+  sh.setActiveSelection(VENDA.NOME);
+}
+
+// Onde ficam os campos nas abas de venda
+const VENDA = { NOME: 'B4', WHATS: 'B5', TAMANHO: 'B6', ATENDENTE: 'B7', VENDER: 'B8', RESULTADO: 'B9', OBS: 'Venda no Comitê' };
+
 function onVendaEdit_(e) {
   const sh = e.range.getSheet();
-  if (e.range.getA1Notation() !== 'B7' || !isOn_(e.range.getValue())) return;
-  const say = (msg, ok) => sh.getRange('B9').setValue(msg)
+  if (e.range.getA1Notation() !== VENDA.VENDER || !isOn_(e.range.getValue())) return;
+  const say = (msg, ok) => sh.getRange(VENDA.RESULTADO).setValue(msg)
     .setBackground(ok ? COLOR.green100 : COLOR.blue50)
     .setFontColor(ok ? COLOR.green800 : COLOR.blue);
   try {
-    const [[nome], [whats], [tam], [atendente]] = sh.getRange('B3:B6').getValues();
-    if (!String(nome).trim() || !String(whats).trim() || !String(tam).trim() || !String(atendente).trim()) {
-      return say('Preencha nome completo, WhatsApp, tamanho e atendente antes de marcar "Vender".', false);
+    const val = a => String(sh.getRange(a).getValue() || '').trim();
+    const nome = val(VENDA.NOME), whats = val(VENDA.WHATS), tam = val(VENDA.TAMANHO), atendente = val(VENDA.ATENDENTE);
+    if (!nome || !whats || !tam || !atendente) {
+      return say('Preencha nome completo, WhatsApp, tamanho e atendente antes de marcar Vender.', false);
     }
     say('Vendendo…', true);
-    const r = supa_('vender', {
-      p_token: SUPA.TOKEN, p_nome: String(nome), p_whatsapp: String(whats),
-      p_tamanho: String(tam), p_atendente: String(atendente),
-    });
+    const r = supa_('vender', { p_token: SUPA.TOKEN, p_nome: nome, p_whatsapp: whats, p_tamanho: tam, p_atendente: atendente });
     if (!r.ok) return say(r.error, false);
-    sh.getRange('B3:B5').clearContent();
-    say('Vendida: ' + r.code + ' — ' + r.name + ', tamanho ' + r.size + '. Receba R$ ' +
+    [VENDA.NOME, VENDA.WHATS, VENDA.TAMANHO].forEach(a => sh.getRange(a).clearContent());
+    say('✓ Vendida: ' + r.code + ' — ' + r.name + ', tamanho ' + r.size + '. Receba R$ ' +
       Number(r.total).toFixed(2).replace('.', ',') + ' e entregue a camisa.', true);
-    sincronizarSupabase(); // já entra na aba Reservas
+    sincronizarSupabase(); // já entra na aba Reservas e na lista abaixo
   } catch (err) {
     console.error(err);
     say('Não deu para registrar a venda agora (sem conexão com o sistema). Tente de novo em alguns segundos.', false);
   } finally {
-    sh.getRange('B7').setValue(false);
+    sh.getRange(VENDA.VENDER).setValue(false);
   }
 }
