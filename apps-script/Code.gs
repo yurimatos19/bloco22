@@ -939,6 +939,9 @@ function sincronizarSupabase() {
     ]);
     if (add.length) {
       const first = rs.getLastRow() + 1;
+      // Garante linhas sobrando na aba (sem isso a gravação falha quando a aba enche)
+      const need = first + add.length - 1 + 200 - rs.getMaxRows();
+      if (need > 0) rs.insertRowsAfter(rs.getMaxRows(), need);
       if (first > 2) rs.getRange(first - 1, 1, 1, NCOLS).copyFormatToRange(rs, 1, NCOLS, first, first + add.length - 1);
       rs.getRange(first, COL.WHATS, add.length, 1).setNumberFormat('@');
       rs.getRange(first, 1, add.length, NCOLS).setValues(add);
